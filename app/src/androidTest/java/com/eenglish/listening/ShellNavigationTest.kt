@@ -6,6 +6,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.espresso.Espresso.pressBack
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.lifecycle.Lifecycle
 import com.eenglish.listening.viewmodel.PracticeViewModel
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
@@ -69,6 +70,54 @@ class ShellNavigationTest {
         compose.waitUntil(5000) { vm.audio.state.value.positionMs in 9500..10500 }
         compose.onNodeWithTag("audio-toggle").performClick()
         compose.waitUntil(10000) { vm.audio.state.value.positionMs > 11000 }
+        compose.onNodeWithTag("audio-toggle").performClick()
+    }
+
+    @Test fun transcriptModesDisplayImportedTextAndKeepAnswerAndPlayer() {
+        openPractice()
+        select(21, "B")
+        compose.waitUntil(15000) { vm.audio.state.value.ready }
+        val controller = vm.audio
+        compose.runOnIdle { controller.seekTo(60000) }
+        openTranscript()
+        compose.onNodeWithText("英文原文").performClick()
+        val transcript = vm.uiState.value.part!!.transcript
+        compose.onNodeWithText(transcript.english).assertExists()
+        compose.onNodeWithText(transcript.chinese).assertDoesNotExist()
+        compose.onNodeWithText("中文翻译").performClick()
+        compose.onNodeWithText(transcript.chinese).assertExists()
+        compose.onNodeWithText(transcript.english).assertDoesNotExist()
+        compose.onNodeWithText("英中双语").performClick()
+        compose.onNodeWithText(transcript.segments.first { it.chinese.isNotBlank() }.chinese).assertExists()
+        compose.onNodeWithText(transcript.segments.last().english).performScrollTo().assertIsDisplayed()
+        assertSame(controller, vm.audio)
+        assertTrue(vm.audio.state.value.positionMs in 59500..60500)
+        compose.onNodeWithTag("audio-toggle").performClick()
+        compose.waitUntil(10000) { controller.state.value.positionMs > 61000 }
+        repeat(5) {
+            pressBack()
+            openTranscript()
+            assertSame(controller, vm.audio)
+            assertTrue(controller.state.value.positionMs >= 61000)
+        }
+        compose.onNodeWithTag("audio-toggle").performClick()
+        pressBack()
+        compose.onNodeWithTag("practice-list").performScrollToNode(hasTestTag("option-21-B"))
+        compose.onNodeWithTag("option-21-B").assertIsSelected()
+    }
+
+    @Test fun backgroundPausesAndForegroundRequiresManualResume() {
+        openPractice()
+        compose.waitUntil(15000) { vm.audio.state.value.ready }
+        compose.onNodeWithTag("audio-toggle").performClick()
+        compose.waitUntil(10000) { vm.audio.state.value.isPlaying }
+        val controller = vm.audio
+        compose.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
+        compose.waitUntil(5000) { !controller.state.value.isPlaying }
+        compose.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+        assertFalse(controller.state.value.isPlaying)
+        compose.onNodeWithTag("audio-toggle").performClick()
+        compose.waitUntil(10000) { controller.state.value.isPlaying }
         compose.onNodeWithTag("audio-toggle").performClick()
     }
 

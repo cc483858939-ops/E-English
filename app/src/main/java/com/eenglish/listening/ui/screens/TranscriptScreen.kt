@@ -14,15 +14,19 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.eenglish.listening.R
-import com.eenglish.listening.ui.components.AudioPlaceholder
+import com.eenglish.listening.ui.components.AudioControls
+import com.eenglish.listening.audio.AudioState
+import com.eenglish.listening.domain.model.ListeningPart
 import com.eenglish.listening.ui.components.PageHeader
 import com.eenglish.listening.viewmodel.TranscriptMode
 
 @Composable
-fun TranscriptScreen(mode: TranscriptMode, onModeChange: (TranscriptMode) -> Unit, onBack: () -> Unit) {
+fun TranscriptScreen(part: ListeningPart?, audio: AudioState, onToggle: () -> Unit, onSeek: (Long) -> Unit,
+    mode: TranscriptMode, onModeChange: (TranscriptMode) -> Unit, onBack: () -> Unit) {
     Scaffold { insets ->
         Column(Modifier.fillMaxSize().padding(insets).padding(horizontal = 20.dp)) {
             PageHeader(stringResource(R.string.transcript_title), onBack)
@@ -37,15 +41,25 @@ fun TranscriptScreen(mode: TranscriptMode, onModeChange: (TranscriptMode) -> Uni
                 }
             }
             Column(
-                Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(vertical = 24.dp),
+                Modifier.weight(1f).testTag("transcript-body").verticalScroll(rememberScrollState()).padding(vertical = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                Text(stringResource(R.string.book_title), style = MaterialTheme.typography.headlineSmall)
-                Text(stringResource(R.string.part_label))
-                Text(stringResource(R.string.transcript_pending), style = MaterialTheme.typography.titleLarge)
-                Text(stringResource(R.string.transcript_pending_detail), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (part != null) {
+                    Text(part.title, style = MaterialTheme.typography.headlineSmall)
+                    when (mode) {
+                        TranscriptMode.ENGLISH -> Text(part.transcript.english, style = MaterialTheme.typography.bodyLarge)
+                        TranscriptMode.CHINESE -> Text(part.transcript.chinese, style = MaterialTheme.typography.bodyLarge)
+                        TranscriptMode.BILINGUAL -> part.transcript.segments.forEach { segment ->
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                if (segment.english.isNotBlank()) Text(segment.english, style = MaterialTheme.typography.bodyLarge)
+                                if (segment.chinese.isNotBlank()) Text(segment.chinese, style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                } else Text("暂无已导入原文")
             }
-            AudioPlaceholder()
+            AudioControls(audio, onToggle, onSeek)
             TextButton(onClick = onBack) { Text(stringResource(R.string.back_to_practice)) }
         }
     }

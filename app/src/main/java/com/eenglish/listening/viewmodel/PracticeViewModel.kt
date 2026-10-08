@@ -30,6 +30,7 @@ class PracticeViewModel(application: Application) : AndroidViewModel(application
             try {
                 val parts = repository.loadParts()
                 mutableState.update { it.copy(loading = false, parts = parts, part = parts.firstOrNull()) }
+                parts.firstOrNull()?.let { audio.load(it.audioPath) }
             } catch (_: Exception) {
                 mutableState.update { it.copy(loading = false, error = "题库校验失败，请重新导入本地资源") }
             }

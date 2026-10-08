@@ -9,7 +9,7 @@ enum class TranscriptMode { ENGLISH, CHINESE, BILINGUAL }
 
 data class ShellUiState(val transcriptMode: TranscriptMode = TranscriptMode.ENGLISH)
 
-/** Only presentation state exists at CP1. Practice records will be persisted in Room. */
+/** Saved presentation preference; durable practice records belong to the repository. */
 class ShellViewModel(private val savedStateHandle: SavedStateHandle) : ViewModel() {
     private val mutableState = MutableStateFlow(
         ShellUiState(

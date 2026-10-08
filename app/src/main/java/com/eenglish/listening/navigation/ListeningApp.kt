@@ -42,6 +42,10 @@ fun ListeningApp(shellViewModel: ShellViewModel = viewModel(), practiceViewModel
         }
         composable(AppDestination.TRANSCRIPT.route) {
             TranscriptScreen(
+                part = practice.part,
+                audio = audio,
+                onToggle = practiceViewModel.audio::toggle,
+                onSeek = practiceViewModel.audio::seekTo,
                 mode = state.transcriptMode,
                 onModeChange = shellViewModel::selectTranscriptMode,
                 onBack = { navController.popBackStack() },
