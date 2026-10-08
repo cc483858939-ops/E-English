@@ -18,6 +18,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextOverflow
 import com.eenglish.listening.domain.model.Question
 import kotlin.math.roundToInt
 
@@ -50,6 +51,7 @@ fun ResizableQuestionPanel(question: Question, selected: String?, expanded: Bool
                 verticalAlignment = Alignment.CenterVertically) {
                 Text("Q.${question.number} · ${selected?.let { "已选 $it" } ?: "未作答"}",
                     style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f).testTag("transcript-question-summary"))
                 if (expanded) {
                     Box(Modifier.width(64.dp).height(48.dp).testTag("transcript-drag-handle")

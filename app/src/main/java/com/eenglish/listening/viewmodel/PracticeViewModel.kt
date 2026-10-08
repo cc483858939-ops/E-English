@@ -7,6 +7,10 @@ import androidx.lifecycle.viewModelScope
 import com.eenglish.listening.ListeningApplication
 import com.eenglish.listening.audio.ListeningAudioController
 import com.eenglish.listening.domain.model.*
+import com.eenglish.listening.domain.grading.Grader
+import android.net.Uri
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,7 +20,7 @@ import kotlinx.coroutines.launch
 
 data class PracticeUiState(
     val loading: Boolean = true,
-    val parts: List<ListeningPart> = emptyList(),
+    val parts: List<PartSummary> = emptyList(),
     val part: ListeningPart? = null,
     val attempt: PracticeAttempt? = null,
     val history: List<PracticeAttempt> = emptyList(),
@@ -25,6 +29,7 @@ data class PracticeUiState(
     val submitting: Boolean = false,
     val confirmMissing: Int? = null,
     val error: String? = null,
+    val importMessage: String? = null,
 ) {
     val questions: List<Question> get() = attempt?.questions ?: part?.questions.orEmpty()
     val submitted: Boolean get() = attempt?.session?.status == SessionStatus.SUBMITTED
@@ -56,8 +61,10 @@ class PracticeViewModel(application: Application, private val savedStateHandle: 
         viewModelScope.launch {
             try {
                 val parts = app.parts.loadParts()
-                mutableState.update { it.copy(parts = parts, part = parts.firstOrNull()) }
-                parts.firstOrNull()?.let { audio.load(it.audioPath) }
+                val selected = parts.firstOrNull { it.id == savedStateHandle.get<String>(PART_KEY) } ?: parts.firstOrNull()
+                val part = selected?.let { app.parts.loadPart(it.id) }
+                mutableState.update { it.copy(parts = parts, part = part) }
+                part?.let { audio.load(app.parts.audioPath(it)) }
                 repository.observeAll().collect { attempts -> reconcile(attempts) }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) {
@@ -80,11 +87,33 @@ class PracticeViewModel(application: Application, private val savedStateHandle: 
         mutableState.update { it.copy(saving = true, error = null) }
         check(commands.trySend(action).isSuccess)
     }
-    fun openPart(part: ListeningPart) {
+    fun openPart(partId: String) {
         savedStateHandle[SESSION_KEY] = null
-        mutableState.update { it.copy(part = part, confirmMissing = null) }
-        audio.load(part.audioPath)
-        enqueue { savedStateHandle[SESSION_KEY] = repository.resumeOrCreate(part) }
+        savedStateHandle[PART_KEY] = partId
+        audio.pause()
+        mutableState.update { it.copy(part = null, attempt = null, answers = emptyMap(), loading = true, confirmMissing = null) }
+        enqueue {
+            val part = app.parts.loadPart(partId)
+            mutableState.update { it.copy(part = part) }
+            audio.load(app.parts.audioPath(part))
+            savedStateHandle[SESSION_KEY] = repository.resumeOrCreate(part)
+        }
+    }
+    fun importPack(uri: Uri) {
+        if (mutableState.value.saving) return
+        mutableState.update { it.copy(importMessage = "正在导入并校验本地资料包…") }
+        enqueue {
+            try {
+                val index = withContext(Dispatchers.IO) {
+                    requireNotNull(app.contentResolver.openInputStream(uri)).use { app.parts.importPack(it) }
+                }
+                val parts = app.parts.loadParts()
+                mutableState.update { it.copy(parts = parts, importMessage = "Cambridge ${index.book} 已导入 ${index.parts.size} 个 Part") }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) {
+                mutableState.update { it.copy(importMessage = "导入失败：资料包不完整、校验冲突或存储不足。现有资料及练习记录已保留。") }
+            }
+        }
     }
     fun selectAnswer(questionId: String, optionId: String) {
         val state = mutableState.value
@@ -95,7 +124,7 @@ class PracticeViewModel(application: Application, private val savedStateHandle: 
     fun requestSubmit() {
         val state = mutableState.value
         if (state.saving || state.submitted || state.submitting || state.attempt == null) return
-        val missing = state.questions.count { state.answers[it.id] == null }
+        val missing = Grader.missingCount(state.questions, state.answers)
         if (missing > 0) mutableState.update { it.copy(confirmMissing = missing) } else confirmSubmit()
     }
     fun dismissSubmit() { mutableState.update { it.copy(confirmMissing = null) } }
@@ -124,5 +153,8 @@ class PracticeViewModel(application: Application, private val savedStateHandle: 
         reconcile(mutableState.value.history)
     }
     override fun onCleared() { commands.close(); audio.release(); super.onCleared() }
-    private companion object { const val SESSION_KEY = "practiceSessionId" }
+    private companion object {
+        const val SESSION_KEY = "practiceSessionId"
+        const val PART_KEY = "practicePartId"
+    }
 }

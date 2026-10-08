@@ -9,11 +9,12 @@ import com.eenglish.listening.data.repository.AnnotationRepository
 
 open class ListeningApplication : Application() {
     protected open val databaseName: String = "practice.db"
+    protected open val libraryDirectoryName: String = "library"
     val database: PracticeDatabase by lazy {
         Room.databaseBuilder(this, PracticeDatabase::class.java, databaseName)
             .addMigrations(PracticeDatabase.MIGRATION_1_2).build()
     }
-    val parts by lazy { PartRepository(assets) }
+    val parts by lazy { PartRepository(assets, java.io.File(filesDir, libraryDirectoryName)) }
     val practices by lazy { PracticeRepository(database) }
     val annotations by lazy { AnnotationRepository(database) }
 }

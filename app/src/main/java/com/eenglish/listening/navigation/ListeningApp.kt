@@ -19,6 +19,14 @@ import com.eenglish.listening.ui.screens.PracticeScreen
 import com.eenglish.listening.ui.screens.TranscriptScreen
 import com.eenglish.listening.viewmodel.ShellViewModel
 import com.eenglish.listening.viewmodel.PracticeViewModel
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import com.eenglish.listening.ListeningApplication
+import com.eenglish.listening.ui.components.LocalAnswerSession
+import com.eenglish.listening.ui.components.LocalAnswerSaving
+import com.eenglish.listening.ui.components.LocalQuestionImages
 
 @Composable
 fun ListeningApp(shellViewModel: ShellViewModel = viewModel(), practiceViewModel: PracticeViewModel = viewModel()) {
@@ -29,16 +37,26 @@ fun ListeningApp(shellViewModel: ShellViewModel = viewModel(), practiceViewModel
     val state by shellViewModel.uiState.collectAsStateWithLifecycle()
     val practice by practiceViewModel.uiState.collectAsStateWithLifecycle()
     val audio by practiceViewModel.audio.state.collectAsStateWithLifecycle()
+    val application = LocalContext.current.applicationContext as ListeningApplication
+    val imageLoader: suspend (String) -> android.graphics.Bitmap? = remember(application, practice.part?.id) {
+        { path -> practice.part?.id?.let { id ->
+            try { application.parts.readImage(id, path) } catch (_: java.io.IOException) { null }
+        } }
+    }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(practiceViewModel::importPack)
+    }
 
-    CompositionLocalProvider(LocalAnnotations provides AnnotationContext(practice.part?.id, highlights, annotationViewModel::change)) {
+    CompositionLocalProvider(LocalAnnotations provides AnnotationContext(practice.part?.id, highlights, annotationViewModel::change),
+        LocalAnswerSession provides practice.attempt?.session?.id, LocalAnswerSaving provides practice.saving, LocalQuestionImages provides imageLoader) {
     annotationError?.let { message ->
         AlertDialog(onDismissRequest = annotationViewModel::dismissError, text = { Text(message) },
             confirmButton = { TextButton(onClick = annotationViewModel::dismissError) { Text("知道了") } })
     }
     NavHost(navController = navController, startDestination = AppDestination.LIST.route) {
         composable(AppDestination.LIST.route) {
-            PartListScreen(practice, onOpen = { part ->
-                practiceViewModel.openPart(part)
+            PartListScreen(practice, onImport = { importLauncher.launch(arrayOf("application/zip", "application/octet-stream")) }, onOpen = { id ->
+                practiceViewModel.openPart(id)
                 navController.navigate(AppDestination.PRACTICE.route) { launchSingleTop = true }
             })
         }

@@ -14,6 +14,7 @@ import com.eenglish.listening.audio.AudioState
 import com.eenglish.listening.ui.components.*
 import com.eenglish.listening.viewmodel.PracticeUiState
 import com.eenglish.listening.domain.grading.Grade
+import com.eenglish.listening.domain.grading.Grader
 import com.eenglish.listening.domain.model.SessionStatus
 import java.text.DateFormat
 import java.util.Date
@@ -74,7 +75,7 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
                                     Text("已提交的尝试不可修改", style = MaterialTheme.typography.labelMedium)
                                 }
                             }
-                        } else Text("已保存 ${state.answers.size} / ${state.questions.size} 题", modifier = Modifier.padding(vertical = 8.dp))
+                        } else Text("已保存 ${state.questions.size - Grader.missingCount(state.questions, state.answers)} / ${state.questions.size} 题", modifier = Modifier.padding(vertical = 8.dp))
                     }
                     items(state.questions, key = { it.id }) { question ->
                         QuestionCard(question, state.answers[question.id], !state.submitted && !state.submitting && state.attempt != null,

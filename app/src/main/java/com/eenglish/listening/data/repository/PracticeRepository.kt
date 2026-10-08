@@ -36,8 +36,24 @@ class PracticeRepository(private val database: PracticeDatabase) {
         val session = requireNotNull(dao.session(sessionId)) { "Missing session" }
         check(session.status == SessionStatus.IN_PROGRESS.name) { "Submitted attempt is immutable" }
         val question = questions(session).singleOrNull { it.id == questionId }
-        require(question != null && question.options.any { it.id == selected }) { "Invalid answer selection" }
-        dao.save(AnswerEntity(sessionId, questionId, selected))
+        requireNotNull(question) { "Invalid answer question" }
+        when {
+            question.type == QuestionType.MULTIPLE_CHOICE -> {
+                val group = questions(session).filter { it.groupId == question.groupId }
+                val choices = Grader.selection(selected)
+                require(choices.size <= group.size && choices.all { choice -> question.options.any { it.id == choice } }) { "Invalid group choice" }
+                val canonical = choices.sorted().joinToString(",")
+                group.forEach { dao.save(AnswerEntity(sessionId, it.id, canonical)) }
+            }
+            question.isTextInput -> {
+                require(selected.length <= 512) { "Answer too long" }
+                dao.save(AnswerEntity(sessionId, questionId, selected))
+            }
+            else -> {
+                require(question.options.any { it.id == selected }) { "Invalid answer selection" }
+                dao.save(AnswerEntity(sessionId, questionId, selected))
+            }
+        }
     }
     /** Score and status change atomically. Repeated or concurrent submits return the same record. */
     suspend fun submit(sessionId: String): PracticeSession = database.withTransaction {

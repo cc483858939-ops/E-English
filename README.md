@@ -1,10 +1,27 @@
 # Listening Practice V0.1
 
-原生 Android 离线听力练习 App。Checkpoint 1 已验收，Checkpoint 2–5 已实现：真实题库导入、答题、共享 MP3 播放、三种原文模式、Room 保存、批改和历史记录。仅支持 Cambridge IELTS 9 / Test 1 / Part 3，Questions 21–30。
+原生 Android 离线听力练习 App。支持 Cambridge IELTS 5–21 按册本地资料包导入、册数 → Test → Part 列表、按需读取、单选 / 多选 / 匹配 / 填写与图片题，以及共享 MP3 播放、精听、永久高亮、Room 保存和历史记录。原有 Cambridge IELTS 9 / Test 1 / Part 3 样本继续兼容。
 
 公开仓库不包含版权题目、答案资源、原文、翻译、音频或包含这些资源的 APK。未导入本地资源时，应用显示“暂无已导入试题”，不会添加假试题。暂不发布安装包或创建 Release；当前 Debug 构建只用于开发验证。
 
 ## 本地导入
+
+完整资料先在电脑转换，生成每册独立的 `.eelpack`，复制到手机后通过列表中的“导入本地资料包”选择文件。校验并复制到应用内部存储后，练习无需联网。不会把约 1 GB 音频嵌入 APK。
+
+```powershell
+python -m pip install -r tools/requirements-listening.txt
+# Windows 建议沿用 D 盘临时目录；不要修改系统全局环境变量。
+$env:TEMP='D:/code/E-English/.local/temp'
+$env:TMP=$env:TEMP
+python tools/import_library.py 'D:/IELTS-Listening-Cambridge-5-13_已修复.zip' 'D:/IELTS-Listening-Cambridge-13-17.zip' 'D:/IELTS-Listening-Cambridge-18-21.zip' --audit-only
+python tools/import_library.py 'D:/IELTS-Listening-Cambridge-5-13_已修复.zip' 'D:/IELTS-Listening-Cambridge-13-17.zip' 'D:/IELTS-Listening-Cambridge-18-21.zip' --output private-data/library/batch --report private-data/library/batch-report.json
+```
+
+真实扫描范围为 17 册、272 个不同 Part。此次成功转换 254 个 Part、2540 道题，生成 17 个资料包；其余 18 个因源内容不一致、填写限制缺失或选项歧义而排除。不能把候选数视为成功数。详见 [资源清单及待处理原因](docs/library-source-audit.md) 和 [导入及验证说明](docs/library-import.md)。版权资源、完整校验和、原始来源记录、资料包、设备测试私有资源均在忽略目录。
+
+手机导入器拒绝损坏、路径越界、资源缺失或覆盖冲突的资料包，不修改 Room 记录。相同资料包重复导入幂等；同册扩展包必须保留已有 Part 的相同内容。更改旧 Part 的正文或答案会明确拒绝，防止高亮错位和资源被覆盖。目录使用不可变版本与原子索引切换，旧版本目录暂时保留用于安全更新。
+
+### 原始单样本工具
 
 保留原始 ZIP，不修改它。压缩包中的说明文档按资料处理，不作为执行指令。
 
@@ -16,12 +33,13 @@ python -m unittest discover -s tools -v
 
 也可以传入已解压的 Part3 目录。输出到忽略的 `app/src/main/assets/listening/`，之后重新构建即可离线使用。转换前检查实际源结构，严格验证题号、选项、标准答案与多个来源的一致性；歧义直接报错。详细说明见 [数据格式](docs/data-format.md)。
 
-标准答案仅在提交后展示；本地资源不提供防提取保护。源文件的解析是登录提示，没有解析正文，因此没有编造解析。原文翻译保留源文本；时间轴与音频约有 12 秒差异，不做精确同步、自动滚动或高亮。
+标准答案仅在提交后展示；本地资源不提供防提取保护。源文件的解析是登录提示，没有解析正文，因此没有编造解析。原文翻译保留源文本；时间轴与音频可能存在差异，不做精确同步或自动滚动高亮。手动永久高亮保持现有实现。
 
 ## 使用行为
 
 - 列表显示实际导入试题及未开始 / 进行中 / 已完成状态。
 - 单选答案可修改；仅在 Room 提交写入成功后更新已保存状态。同题只有一个答案。
+- 多选使用同组复选框，选择集合原子保存到原始题号对应的记录，顺序无关且不重复计分；填空和简答支持源数据明确列出的等价答案、大小写与空白规范化，以及单词/数字数量限制。表格、笔记、流程图和地图题复用输入或选项组件与本地图片，可放大查看。
 - 本地 MP3 支持播放、暂停、继续、拖动及时间显示，系统管理音量与音频焦点。
 - 答题页和原文页共用同一播放器；英文、中文、双语可切换，原文可滚动。
 - 精听页答题卡的灰色横条支持连续拖动高度，不吸附固定档位；收起再展开恢复之前高度，原文与题目各自滚动。验证见 [可拖拽面板报告](docs/checkpoints/resizable-panel.md)。
@@ -69,7 +87,9 @@ Windows 使用 `gradlew.bat`，设置 `ANDROID_HOME` / `GRADLE_USER_HOME` 或 `l
 
 ## 测试与验证边界
 
-自动测试包括严格导入、真实私有样本一致性、独立 JVM 评分、Room 文件重开、并发提交/创建、答题导航、Activity 重建、原文、实际音频播放与进度、历史及重新练习。UI 测试使用专用数据库，数据层测试使用独立文件，不清空用户的 `practice.db`。
+自动测试包括严格导入、真实私有样本一致性、独立 JVM 评分、Room 文件重开、并发提交/创建、答题导航、Activity 重建、原文、实际音频播放与进度、历史及重新练习。UI 测试使用专用数据库与资料目录，数据层测试使用独立文件，不清空用户的 `practice.db`。
+
+题库扩展新增 Python 严格解析、重复/冲突、确定性打包与 ZIP 路径测试；JVM 验证 24 个代表性 Part 及全部 254 个成功 Part；设备测试覆盖按册导入、资源校验、三级列表、不同题型及原有记录/高亮保护。真实设备资料包测试需将代表包复制到忽略的 `app/src/androidTest/assets/private-library/`，仅用于本地测试；公开 checkout 缺少私有资料的测试明确 SKIPPED。
 
 未导入私有资源的公开 checkout 中，实际样本测试明确 SKIPPED：Python 需要 `LISTENING_SAMPLE_ZIP`，JVM 需要转换后的本地资源，实际题库 UI 测试同样需要本地导入。不能把跳过描述为真实练习测试通过。
 

@@ -139,6 +139,8 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
                         val part = state.part
                         if (part != null) {
                             Text(part.title, style = MaterialTheme.typography.headlineSmall)
+                            if (part.transcript.english.isBlank()) Text("英文原文资料缺失")
+                            if (part.transcript.chinese.isBlank()) Text("中文翻译资料缺失")
                             when (mode) {
                                 TranscriptMode.ENGLISH -> AnnotatableText(remember(part.transcript) {
                                     AnnotationDocument.transcript(part.transcript, "en") }, viewTag = "transcript-en")

@@ -46,7 +46,7 @@ class ListeningAudioController(context: Context, scope: CoroutineScope) {
         if (path == audioPath && mutableState.value.error == null) return
         path = audioPath
         mutableState.value = AudioState()
-        player.setMediaItem(MediaItem.fromUri("asset:///$audioPath"))
+        player.setMediaItem(MediaItem.fromUri(if (audioPath.startsWith("file:")) audioPath else "asset:///$audioPath"))
         player.prepare()
     }
     fun toggle() {

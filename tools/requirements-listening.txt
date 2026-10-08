@@ -1,2 +1,2 @@
 beautifulsoup4==4.14.3
-Pillow>=11,<13
+Pillow==12.2.0

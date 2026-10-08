@@ -14,6 +14,7 @@ artifacts/
 private-data/
 sample-data/
 app/src/main/assets/listening/
+app/src/androidTest/assets/private-library/
 *.mp3
 *.zip
 __pycache__/

@@ -24,6 +24,8 @@ android {
     sourceSets.getByName("androidTest").assets.srcDir("schemas")
     testOptions.unitTests.all {
         it.systemProperty("listening.assets", rootProject.file("app/src/main/assets").absolutePath)
+        it.systemProperty("listening.library", rootProject.file("private-data/library/verified-representatives/books").absolutePath)
+        it.systemProperty("listening.batch", rootProject.file("private-data/library/batch/books").absolutePath)
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
