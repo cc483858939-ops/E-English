@@ -1,0 +1,14 @@
+Failed to find real location of C:\Users\ASUS\AppData\Local\Programs\Python\Python313\python.exe
+test_ambiguous_wrapped_prompt (test_import_sample.ImportTests.test_ambiguous_wrapped_prompt) ... ok
+test_answer_cross_checks (test_import_sample.ImportTests.test_answer_cross_checks) ... ok
+test_duplicate_json_key (test_import_sample.ImportTests.test_duplicate_json_key) ... ok
+test_duplicate_number (test_import_sample.ImportTests.test_duplicate_number) ... ok
+test_exact_ten_and_options (test_import_sample.ImportTests.test_exact_ten_and_options) ... ok
+test_invalid_options (test_import_sample.ImportTests.test_invalid_options) ... ok
+test_missing_question (test_import_sample.ImportTests.test_missing_question) ... ok
+test_real_sample_repeatable_when_explicitly_provided (test_import_sample.ImportTests.test_real_sample_repeatable_when_explicitly_provided) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 0.117s
+
+OK

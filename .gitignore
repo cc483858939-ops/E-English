@@ -16,3 +16,5 @@ sample-data/
 app/src/main/assets/listening/
 *.mp3
 *.zip
+__pycache__/
+*.pyc
