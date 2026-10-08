@@ -7,6 +7,9 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.test.espresso.Espresso.pressBack
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.lifecycle.Lifecycle
+import androidx.compose.ui.geometry.Offset
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.eenglish.listening.viewmodel.PracticeViewModel
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
@@ -85,6 +88,74 @@ class ShellNavigationTest {
         compose.onNodeWithTag("audio-toggle").performClick()
         compose.waitUntil(10000) { vm.audio.state.value.positionMs > 11000 }
         compose.onNodeWithTag("audio-toggle").performClick()
+    }
+
+    @Test fun fixedPlayerAndSubmitRemainUsableAtQuestionThirty() {
+        openPractice()
+        select(21, "A")
+        compose.waitUntil(15000) { vm.audio.state.value.ready }
+        val controller = vm.audio
+        val playerBounds = compose.onNodeWithTag("practice-player").fetchSemanticsNode().boundsInRoot
+        for (number in 21..30) {
+            compose.onNodeWithTag("practice-list").performScrollToNode(hasTestTag("question-$number"))
+            compose.onNodeWithTag("question-$number").assertIsDisplayed()
+            compose.onNodeWithTag("audio-toggle").assertIsDisplayed()
+            compose.onNodeWithTag("audio-time").assertIsDisplayed()
+            compose.onNodeWithTag("audio-seek").assertIsDisplayed()
+            compose.onNodeWithText("查看原文").assertIsDisplayed()
+            compose.onNodeWithTag("practice-submit").assertIsDisplayed()
+            assertEquals(playerBounds, compose.onNodeWithTag("practice-player").fetchSemanticsNode().boundsInRoot)
+        }
+        select(30, "B")
+        assertFixedRegionsDoNotOverlap()
+        compose.onNodeWithTag("audio-toggle").performClick()
+        compose.waitUntil(10000) { controller.state.value.isPlaying && controller.state.value.positionMs > 500 }
+        compose.onNodeWithTag("audio-toggle").performClick()
+        compose.waitUntil(5000) { !controller.state.value.isPlaying }
+        // Exercise the touch drag, in addition to the existing accessibility seek test.
+        compose.onNodeWithTag("audio-seek").performTouchInput {
+            swipe(Offset(width * 0.1f, centerY), Offset(width * 0.6f, centerY), 600)
+        }
+        compose.waitUntil(5000) { controller.state.value.positionMs > 100000 }
+        val position = controller.state.value.positionMs
+        val answers = vm.uiState.value.answers.toMap()
+        val sessionId = vm.uiState.value.attempt!!.session.id
+        openTranscript()
+        pressBack()
+        assertSame(controller, vm.audio)
+        assertEquals(answers, vm.uiState.value.answers)
+        assertEquals(sessionId, vm.uiState.value.attempt!!.session.id)
+        assertTrue(controller.state.value.positionMs in (position - 500)..(position + 500))
+        compose.onNodeWithTag("practice-list").performScrollToNode(hasTestTag("option-30-B"))
+        compose.onNodeWithTag("option-30-B").assertIsDisplayed().assertIsSelected()
+        assertFixedRegionsDoNotOverlap()
+        compose.onNodeWithTag("audio-toggle").performClick()
+        compose.waitUntil(10000) { controller.state.value.isPlaying && controller.state.value.positionMs > position + 500 }
+        compose.onNodeWithTag("audio-toggle").performClick()
+    }
+
+    private fun assertFixedRegionsDoNotOverlap() {
+        val header = compose.onNodeWithTag("practice-header").fetchSemanticsNode().boundsInRoot
+        val player = compose.onNodeWithTag("practice-player").fetchSemanticsNode().boundsInRoot
+        val questions = compose.onNodeWithTag("practice-list").fetchSemanticsNode().boundsInRoot
+        val submit = compose.onNodeWithTag("practice-submit").fetchSemanticsNode().boundsInRoot
+        assertTrue(header.bottom <= player.top)
+        assertTrue(player.bottom <= questions.top)
+        assertTrue(questions.bottom <= submit.top)
+        assertTrue(questions.height > 0)
+        compose.runOnIdle {
+            val decor = compose.activity.window.decorView
+            val bars = requireNotNull(ViewCompat.getRootWindowInsets(decor))
+                .getInsets(WindowInsetsCompat.Type.systemBars())
+            assertTrue(header.top >= bars.top)
+            assertTrue(submit.bottom <= decor.height - bars.bottom)
+        }
+        val toggle = compose.onNodeWithTag("audio-toggle").fetchSemanticsNode().boundsInRoot
+        val time = compose.onNodeWithTag("audio-time").fetchSemanticsNode().boundsInRoot
+        val seek = compose.onNodeWithTag("audio-seek").fetchSemanticsNode().boundsInRoot
+        assertTrue("Play button overlaps time: $toggle / $time", toggle.right <= time.left)
+        assertTrue("Time overlaps seek touch area: $time / $seek", time.right <= seek.left)
+        assertTrue("Seek touch area too narrow: $seek", seek.width >= 48 * compose.density.density)
     }
 
     @Test fun transcriptModesDisplayImportedTextAndKeepAnswerAndPlayer() {
@@ -213,7 +284,6 @@ class ShellNavigationTest {
         }
     }
     private fun openTranscript() {
-        compose.onNodeWithTag("practice-list").performScrollToNode(hasText("查看原文"))
-        compose.onNodeWithText("查看原文").performClick()
+        compose.onNodeWithText("查看原文").assertIsDisplayed().performClick()
     }
 }

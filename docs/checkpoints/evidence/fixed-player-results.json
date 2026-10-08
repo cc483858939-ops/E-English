@@ -1,0 +1,38 @@
+{
+  "date": "2026-10-08",
+  "jvm": {
+    "tests": 12,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "androidNormal": {
+    "screen": "1080x1920",
+    "densityDpi": 420,
+    "fontScale": 1.0,
+    "tests": 16,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "androidSmall": {
+    "screen": "720x1280",
+    "densityDpi": 320,
+    "fontScale": 1.3,
+    "tests": 16,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "assembleDebug": "BUILD SUCCESSFUL",
+  "apkSha256": "a763e200821b105679e8eac505d27bc87ac701f2b0f78a253d9c6621f28ac832",
+  "apkBytes": 15844546,
+  "apkSignatureVerified": true,
+  "apkPrivateAssetsVerified": true,
+  "device": "cp1-api36 / emulator-5570 / API 36 x86_64",
+  "notVerified": [
+    "physical Android device",
+    "API 26 runtime",
+    "speaker or headphone audio output"
+  ]
+}
