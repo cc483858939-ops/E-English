@@ -25,6 +25,7 @@ python -m unittest discover -s tools -v
 - 本地 MP3 支持播放、暂停、继续、拖动及时间显示，系统管理音量与音频焦点。
 - 答题页和原文页共用同一播放器；英文、中文、双语可切换，原文可滚动。
 - 精听页答题卡的灰色横条支持连续拖动高度，不吸附固定档位；收起再展开恢复之前高度，原文与题目各自滚动。验证见 [可拖拽面板报告](docs/checkpoints/resizable-panel.md)。
+- 原文、翻译、双语段落、题干和选项支持系统文字选区、准确复制、黄色永久高亮及部分取消。标记按 Part 保存，重新练习不会清空。英文/中文模式可以跨段选择；双语模式按单个语言段选择，同一段的高亮跨模式共享。验证及数据库迁移见 [文字标注报告](docs/checkpoints/annotations.md)。
 - 进入后台暂停，回到前台手动继续；页面切换保持进度，播放器随 ViewModel 释放。
 - 漏答提交需要确认；未答计错。提交事务幂等，已提交尝试只读。
 - 重新练习创建新尝试，保存旧成绩；历史记录可查看。若从旧成绩页返回已有草稿，按钮明确显示“继续未完成练习”。
@@ -79,6 +80,14 @@ python tools/device_smoke.py --adb .local/android-sdk/platform-tools/adb.exe --s
 ```
 
 其 UI 转储、数据库副本和截图包含版权内容，全部保留在忽略的 `artifacts/`。只提交不含题目内容的测试汇总及构建日志。
+
+标注的真实进程恢复测试使用合成文本和专用数据库。先在可丢弃模拟器安装本地 debug 与 androidTest 构建，再执行：
+
+```powershell
+python tools/annotation_process_smoke.py --adb .local/android-sdk/platform-tools/adb.exe --serial emulator-5570 --allow-disposable-emulator
+```
+
+此测试通过原生选择菜单保存高亮，结束进程后以新的测试进程读取并检查黄色标记，不清空用户的 `practice.db`。
 
 最终实际结果见 [集成验收报告](docs/checkpoints/integration-report.md)，各阶段见 [CP2](docs/checkpoints/checkpoint-2.md)、[CP3](docs/checkpoints/checkpoint-3.md)、[CP4](docs/checkpoints/checkpoint-4.md)、[CP5](docs/checkpoints/checkpoint-5.md)。[CP1](docs/checkpoints/checkpoint-1.md) 是已验收的历史记录，不代表当前功能状态。已知限制见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md)。
 

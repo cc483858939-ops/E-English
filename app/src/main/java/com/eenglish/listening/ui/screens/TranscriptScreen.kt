@@ -16,6 +16,8 @@ import com.eenglish.listening.R
 import com.eenglish.listening.ui.components.AudioControls
 import com.eenglish.listening.audio.AudioState
 import com.eenglish.listening.ui.components.ResizableQuestionPanel
+import com.eenglish.listening.ui.components.AnnotatableText
+import com.eenglish.listening.domain.annotation.AnnotationDocument
 import com.eenglish.listening.viewmodel.PracticeUiState
 import com.eenglish.listening.viewmodel.TranscriptMode
 
@@ -138,14 +140,22 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
                         if (part != null) {
                             Text(part.title, style = MaterialTheme.typography.headlineSmall)
                             when (mode) {
-                                TranscriptMode.ENGLISH -> Text(part.transcript.english, style = MaterialTheme.typography.bodyLarge)
-                                TranscriptMode.CHINESE -> Text(part.transcript.chinese, style = MaterialTheme.typography.bodyLarge)
-                                TranscriptMode.BILINGUAL -> part.transcript.segments.forEach { segment ->
+                                TranscriptMode.ENGLISH -> AnnotatableText(remember(part.transcript) {
+                                    AnnotationDocument.transcript(part.transcript, "en") }, viewTag = "transcript-en")
+                                TranscriptMode.CHINESE -> AnnotatableText(remember(part.transcript) {
+                                    AnnotationDocument.transcript(part.transcript, "zh") }, viewTag = "transcript-zh")
+                                TranscriptMode.BILINGUAL -> {
+                                  Text("双语模式按语言段选择；跨段选择请切换英文或中文。", style = MaterialTheme.typography.labelSmall)
+                                  part.transcript.segments.forEachIndexed { index, segment ->
                                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        if (segment.english.isNotBlank()) Text(segment.english, style = MaterialTheme.typography.bodyLarge)
-                                        if (segment.chinese.isNotBlank()) Text(segment.chinese, style = MaterialTheme.typography.bodyLarge,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        if (segment.english.isNotBlank()) AnnotatableText(remember(segment.english, index) {
+                                            AnnotationDocument.single(segment.english.trim(), "transcript", "segment:$index", "en") },
+                                            viewTag = "transcript-en-$index")
+                                        if (segment.chinese.isNotBlank()) AnnotatableText(remember(segment.chinese, index) {
+                                            AnnotationDocument.single(segment.chinese.trim(), "transcript", "segment:$index", "zh") },
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant, viewTag = "transcript-zh-$index")
                                     }
+                                  }
                                 }
                             }
                         } else Text("暂无已导入原文")

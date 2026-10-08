@@ -21,6 +21,7 @@ android {
     }
 
     buildFeatures { compose = true }
+    sourceSets.getByName("androidTest").assets.srcDir("schemas")
     testOptions.unitTests.all {
         it.systemProperty("listening.assets", rootProject.file("app/src/main/assets").absolutePath)
     }
@@ -59,6 +60,7 @@ dependencies {
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.espresso.core)
+    androidTestImplementation(libs.androidx.room.testing)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 }

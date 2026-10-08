@@ -1,0 +1,188 @@
+{
+  "jvm": {
+    "tests": 20,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "suites": [
+      {
+        "suite": "com.eenglish.listening.GraderTest",
+        "timestamp": "2026-10-08T11:48:15.370Z",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "cases": [
+          "orderDoesNotAffectGrade",
+          "foreignQuestionRejected",
+          "allCorrectIsTenOutOfTen",
+          "unansweredIsWrong",
+          "twoWrongIsEightOutOfTen"
+        ]
+      },
+      {
+        "suite": "com.eenglish.listening.HighlightTest",
+        "timestamp": "2026-10-08T11:48:15.402Z",
+        "tests": 8,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "cases": [
+          "crossParagraphSelectionSplitsAndSeparatorsAreNotMarked",
+          "duplicateOverlappingAndAdjacentRangesMerge",
+          "offsetsRemainUtf16WithEmojiAndAcrossLines",
+          "languageAndContentVersionAreIsolatedAndBilingualUsesSameKeys",
+          "invalidSelectionIsRejected",
+          "repeatedWordsUseExactOffsetsRatherThanSearching",
+          "partialCancellationSplitsAndKeepsOtherRanges",
+          "mismatchedParagraphContentIsRejected"
+        ]
+      },
+      {
+        "suite": "com.eenglish.listening.PartValidationTest",
+        "timestamp": "2026-10-08T11:48:15.419Z",
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "cases": [
+          "validFixture",
+          "duplicateNumbersRejected",
+          "invalidAnswersAndOptionsRejected",
+          "actualImportedPrivateAssetsAreConsistent"
+        ]
+      },
+      {
+        "suite": "com.eenglish.listening.ShellViewModelTest",
+        "timestamp": "2026-10-08T11:48:15.469Z",
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "cases": [
+          "unknownStoredModeFallsBackToEnglish",
+          "defaultsToEnglish",
+          "selectedModeCanBeRestoredFromIndependentSavedState"
+        ]
+      }
+    ]
+  },
+  "devices": [
+    {
+      "configuration": {
+        "widthPx": 720,
+        "heightPx": 1280,
+        "densityDpi": 320,
+        "fontScale": 1.3
+      },
+      "api": 36,
+      "serial": "emulator-5570",
+      "timestamp": "2026-10-08T12:02:38",
+      "tests": 36,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "cases": [
+        "com.eenglish.listening.AnnotationProcessTest.nativeUiRestoresPersistedHighlight",
+        "com.eenglish.listening.AnnotationRepositoryTest.rangesPersistAndPartialCancellationSplitsWithoutDuplicateRecords",
+        "com.eenglish.listening.AnnotationRepositoryTest.crossParagraphChangesAreAtomicAndInvalidRangesRollback",
+        "com.eenglish.listening.AnnotationRepositoryTest.annotationsSurviveNewPracticeAndHistoryAndRemainPartScoped",
+        "com.eenglish.listening.AnnotationRepositoryTest.migrationPreservesCompletedAndDraftSessionsAnswersAndFrozenQuestions",
+        "com.eenglish.listening.AnnotationUiTest.nativeSelectionHandleActuallyDragsAcrossLinesWithoutResizingPanel",
+        "com.eenglish.listening.AnnotationUiTest.longPressCopiesExactWordAndMultilineSelectionAndHighlightPersistsAfterNavigation",
+        "com.eenglish.listening.AnnotationUiTest.selectingAndMarkingKeepReadingPlayerAndDragPanelAndOptionTapWorks",
+        "com.eenglish.listening.AnnotationUiTest.promptsAndOptionsCopyAndPersistPartialMarksWithoutAnswering",
+        "com.eenglish.listening.AnnotationUiTest.englishChineseAndBilingualUseSameParagraphAnchorsWithoutMixingOffsets",
+        "com.eenglish.listening.AnnotationUiTest.overlappingHighlightsAndPartialCancellationKeepExactCharactersAndDarkContrast",
+        "com.eenglish.listening.EmptyPartScreenTest.unimportedPartsCannotBePracticed",
+        "com.eenglish.listening.IntensiveLayoutTest.longQuestionAndOptionsScrollWithoutMovingTranscriptOrHidingPlayer",
+        "com.eenglish.listening.PracticeRepositoryTest.concurrentResumeCreatesOnlyOneDraft",
+        "com.eenglish.listening.PracticeRepositoryTest.committedAnswersSurviveClosingAndReopeningDatabase",
+        "com.eenglish.listening.PracticeRepositoryTest.invalidSelectionsAreRejectedAndMissingAnswersAreWrong",
+        "com.eenglish.listening.PracticeRepositoryTest.concurrentSubmissionIsIdempotentAndImmutable",
+        "com.eenglish.listening.PracticeRepositoryTest.newPracticePreservesPreviousScoreAndQuestionSnapshot",
+        "com.eenglish.listening.ShellNavigationTest.rapidSelectionEventsAreCommittedInOrder",
+        "com.eenglish.listening.ShellNavigationTest.tenOutOfTenAndEightOutOfTenAndHistoryRemainAccurate",
+        "com.eenglish.listening.ShellNavigationTest.resizingAtMiddleAndEndPreservesReadingAndQuestionOffsets",
+        "com.eenglish.listening.ShellNavigationTest.missingAnswerConfirmationAndRepeatedSubmitKeepOneImmutableRecord",
+        "com.eenglish.listening.ShellNavigationTest.collapseRestoresLastDraggedHeightAndRecreationRestoresPresentation",
+        "com.eenglish.listening.ShellNavigationTest.tenDragGesturesKeepPlayerAndRoomAnswersShared",
+        "com.eenglish.listening.ShellNavigationTest.intensiveSubmittedAndHistoricalCardsAreReadOnly",
+        "com.eenglish.listening.ShellNavigationTest.realPartHasTenQuestionsAndSingleSelectionsCanChange",
+        "com.eenglish.listening.ShellNavigationTest.navigationAndSystemBackKeepSelectedAnswer",
+        "com.eenglish.listening.ShellNavigationTest.nativeOptionTextTapSavesAnswerAndLongPressCopyDoesNotSelectOption",
+        "com.eenglish.listening.ShellNavigationTest.intensiveCardSwitchesAllQuestionsAndSharesRoomAnswersInBothDirections",
+        "com.eenglish.listening.ShellNavigationTest.fixedPlayerAndSubmitRemainUsableAtQuestionThirty",
+        "com.eenglish.listening.ShellNavigationTest.transcriptModesDisplayImportedTextAndKeepAnswerAndPlayer",
+        "com.eenglish.listening.ShellNavigationTest.backgroundPausesAndForegroundRequiresManualResume",
+        "com.eenglish.listening.ShellNavigationTest.activityRecreationRestoresDestinationAndTranscriptMode",
+        "com.eenglish.listening.ShellNavigationTest.intensiveCardTogglesKeepReadingOffsetPlayerAndSavedPresentation",
+        "com.eenglish.listening.ShellNavigationTest.actualMp3PlaysPausesAndSeeks",
+        "com.eenglish.listening.ShellNavigationTest.handleContinuouslyResizesWithoutSnappingAndRespectsBounds"
+      ]
+    },
+    {
+      "configuration": {
+        "widthPx": 1080,
+        "heightPx": 1920,
+        "densityDpi": 420,
+        "fontScale": 1.0
+      },
+      "api": 36,
+      "serial": "emulator-5570",
+      "timestamp": "2026-10-08T12:06:50",
+      "tests": 36,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "cases": [
+        "com.eenglish.listening.AnnotationProcessTest.nativeUiRestoresPersistedHighlight",
+        "com.eenglish.listening.AnnotationRepositoryTest.rangesPersistAndPartialCancellationSplitsWithoutDuplicateRecords",
+        "com.eenglish.listening.AnnotationRepositoryTest.crossParagraphChangesAreAtomicAndInvalidRangesRollback",
+        "com.eenglish.listening.AnnotationRepositoryTest.annotationsSurviveNewPracticeAndHistoryAndRemainPartScoped",
+        "com.eenglish.listening.AnnotationRepositoryTest.migrationPreservesCompletedAndDraftSessionsAnswersAndFrozenQuestions",
+        "com.eenglish.listening.AnnotationUiTest.nativeSelectionHandleActuallyDragsAcrossLinesWithoutResizingPanel",
+        "com.eenglish.listening.AnnotationUiTest.longPressCopiesExactWordAndMultilineSelectionAndHighlightPersistsAfterNavigation",
+        "com.eenglish.listening.AnnotationUiTest.selectingAndMarkingKeepReadingPlayerAndDragPanelAndOptionTapWorks",
+        "com.eenglish.listening.AnnotationUiTest.promptsAndOptionsCopyAndPersistPartialMarksWithoutAnswering",
+        "com.eenglish.listening.AnnotationUiTest.englishChineseAndBilingualUseSameParagraphAnchorsWithoutMixingOffsets",
+        "com.eenglish.listening.AnnotationUiTest.overlappingHighlightsAndPartialCancellationKeepExactCharactersAndDarkContrast",
+        "com.eenglish.listening.EmptyPartScreenTest.unimportedPartsCannotBePracticed",
+        "com.eenglish.listening.IntensiveLayoutTest.longQuestionAndOptionsScrollWithoutMovingTranscriptOrHidingPlayer",
+        "com.eenglish.listening.PracticeRepositoryTest.concurrentResumeCreatesOnlyOneDraft",
+        "com.eenglish.listening.PracticeRepositoryTest.committedAnswersSurviveClosingAndReopeningDatabase",
+        "com.eenglish.listening.PracticeRepositoryTest.invalidSelectionsAreRejectedAndMissingAnswersAreWrong",
+        "com.eenglish.listening.PracticeRepositoryTest.concurrentSubmissionIsIdempotentAndImmutable",
+        "com.eenglish.listening.PracticeRepositoryTest.newPracticePreservesPreviousScoreAndQuestionSnapshot",
+        "com.eenglish.listening.ShellNavigationTest.rapidSelectionEventsAreCommittedInOrder",
+        "com.eenglish.listening.ShellNavigationTest.tenOutOfTenAndEightOutOfTenAndHistoryRemainAccurate",
+        "com.eenglish.listening.ShellNavigationTest.resizingAtMiddleAndEndPreservesReadingAndQuestionOffsets",
+        "com.eenglish.listening.ShellNavigationTest.missingAnswerConfirmationAndRepeatedSubmitKeepOneImmutableRecord",
+        "com.eenglish.listening.ShellNavigationTest.collapseRestoresLastDraggedHeightAndRecreationRestoresPresentation",
+        "com.eenglish.listening.ShellNavigationTest.tenDragGesturesKeepPlayerAndRoomAnswersShared",
+        "com.eenglish.listening.ShellNavigationTest.intensiveSubmittedAndHistoricalCardsAreReadOnly",
+        "com.eenglish.listening.ShellNavigationTest.realPartHasTenQuestionsAndSingleSelectionsCanChange",
+        "com.eenglish.listening.ShellNavigationTest.navigationAndSystemBackKeepSelectedAnswer",
+        "com.eenglish.listening.ShellNavigationTest.nativeOptionTextTapSavesAnswerAndLongPressCopyDoesNotSelectOption",
+        "com.eenglish.listening.ShellNavigationTest.intensiveCardSwitchesAllQuestionsAndSharesRoomAnswersInBothDirections",
+        "com.eenglish.listening.ShellNavigationTest.fixedPlayerAndSubmitRemainUsableAtQuestionThirty",
+        "com.eenglish.listening.ShellNavigationTest.transcriptModesDisplayImportedTextAndKeepAnswerAndPlayer",
+        "com.eenglish.listening.ShellNavigationTest.backgroundPausesAndForegroundRequiresManualResume",
+        "com.eenglish.listening.ShellNavigationTest.activityRecreationRestoresDestinationAndTranscriptMode",
+        "com.eenglish.listening.ShellNavigationTest.intensiveCardTogglesKeepReadingOffsetPlayerAndSavedPresentation",
+        "com.eenglish.listening.ShellNavigationTest.actualMp3PlaysPausesAndSeeks",
+        "com.eenglish.listening.ShellNavigationTest.handleContinuouslyResizesWithoutSnappingAndRespectsBounds"
+      ]
+    }
+  ],
+  "processRecovery": {
+    "write_native_ui": "PASS",
+    "force_stop_and_pid_absent": "PASS",
+    "read_native_ui_in_new_process": "PASS",
+    "tests": 2,
+    "skipped": 0,
+    "fixture": "synthetic",
+    "database": "annotation-process-test.db"
+  },
+  "assembleDebug": "BUILD SUCCESSFUL"
+}

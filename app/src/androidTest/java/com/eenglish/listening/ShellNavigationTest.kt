@@ -20,6 +20,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import androidx.test.espresso.action.ViewActions.click
 
 @RunWith(AndroidJUnit4::class)
 class ShellNavigationTest {
@@ -269,6 +270,22 @@ class ShellNavigationTest {
         }
         compose.waitUntil(15000) { !vm.uiState.value.saving }
         assertEquals(mapOf(id to "B"), vm.uiState.value.answers)
+    }
+
+    @Test fun nativeOptionTextTapSavesAnswerAndLongPressCopyDoesNotSelectOption() {
+        openPractice()
+        select(21, "A")
+        compose.onNodeWithTag("practice-list").performScrollToNode(hasTestTag("option-21-B"))
+        textAt("option-text-21-B").perform(click())
+        compose.waitUntil(10000) { !vm.uiState.value.saving && vm.uiState.value.answers[vm.uiState.value.questions.first().id] == "B" }
+        compose.onNodeWithTag("practice-list").performScrollToNode(hasTestTag("option-21-A"))
+        textAt("option-text-21-A").perform(pressWord(5))
+        val before = vm.uiState.value.answers.toMap()
+        selectionMenu("复制")
+        assertEquals(before, vm.uiState.value.answers)
+        val app = compose.activity.application as TestListeningApplication
+        assertEquals(before, runBlocking(Dispatchers.IO) { app.practices.all().single().selectedAnswers })
+        compose.onNodeWithTag("option-21-B").assertIsSelected()
     }
 
     @Test fun intensiveCardSwitchesAllQuestionsAndSharesRoomAnswersInBothDirections() {

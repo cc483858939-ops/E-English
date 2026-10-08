@@ -2,6 +2,8 @@ package com.eenglish.listening.data.local
 
 import androidx.room.*
 import kotlinx.coroutines.flow.Flow
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Entity(tableName = "sessions", indices = [Index(value = ["partId", "startedAt"])])
 data class SessionEntity(
@@ -43,5 +45,19 @@ interface PracticeDao {
     suspend fun submit(id: String, time: Long, correct: Int): Int
 }
 
-@Database(entities = [SessionEntity::class, AnswerEntity::class], version = 1, exportSchema = true)
-abstract class PracticeDatabase : RoomDatabase() { abstract fun practiceDao(): PracticeDao }
+@Database(entities = [SessionEntity::class, AnswerEntity::class, HighlightEntity::class], version = 2, exportSchema = true)
+abstract class PracticeDatabase : RoomDatabase() {
+    abstract fun practiceDao(): PracticeDao
+    abstract fun highlightDao(): HighlightDao
+    companion object {
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""CREATE TABLE IF NOT EXISTS `highlights` (
+                    `partId` TEXT NOT NULL, `scope` TEXT NOT NULL, `textId` TEXT NOT NULL,
+                    `language` TEXT NOT NULL, `contentHash` TEXT NOT NULL,
+                    `startOffset` INTEGER NOT NULL, `endOffset` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL,
+                    PRIMARY KEY(`partId`, `scope`, `textId`, `language`, `contentHash`, `startOffset`, `endOffset`))""")
+            }
+        }
+    }
+}
