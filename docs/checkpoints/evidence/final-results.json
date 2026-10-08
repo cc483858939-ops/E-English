@@ -1,0 +1,57 @@
+{
+  "jvm": {
+    "tests": 12,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "instrumented": {
+    "tests": 15,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "lint": {
+    "Warning": 41
+  },
+  "lintCategories": {
+    "AndroidGradlePluginVersion": 1,
+    "GradleDependency": 15,
+    "LockedOrientationActivity": 1,
+    "NewerVersionAvailable": 5,
+    "DiscouragedApi": 1,
+    "DataExtractionRules": 1,
+    "UnusedResources": 16,
+    "TypographyDashes": 1
+  },
+  "device": {
+    "api": 36,
+    "abi": "x86_64",
+    "size": "720x1280",
+    "density": 320,
+    "fontScale": 1.3,
+    "airplaneMode": true,
+    "wifiEnabled": false,
+    "mobileDataEnabled": false,
+    "activeDefaultNetwork": "none"
+  },
+  "verifiedCodeCommit": "282617a52a3481b030b24dcba51cf63ea3e8c22a",
+  "sourceZipSha256": "554466cfae4b29ee1ad80c37a0e00b0dc1cf9dd440773f75ac17749facc641b8",
+  "processRecovery": {
+    "forceStopAnswerRestoration": "PASS",
+    "forceStopScoreRestoration": "PASS",
+    "newAttemptPreservesHistory": "PASS"
+  },
+  "python": {
+    "tests": 9,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "localTemporaryDebugBuild": {
+    "bytes": 15801776,
+    "sha256": "0a92db20f2e7c72ee93893122800553c252b035ec1db71f4f3858787cdc2263f",
+    "published": false,
+    "privateResourceFiles": 2
+  }
+}

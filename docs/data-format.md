@@ -19,6 +19,12 @@ missing/duplicate numbers, missing options, ambiguous accepted answers and
 disagreeing answer/provenance maps fail with explicit errors. Output messages do
 not include answer values or copyrighted question text.
 
+The plain answer file and all supplied HTML question snapshots are also read and
+cross-checked against question text/options. HTML is treated as inert source data.
+The source content page must reference the single local MP3. It is never loaded
+in a WebView. Timeline ranges/count/max-end metadata are validated, with no claim
+that source timings align precisely with the MP3.
+
 The normalized part has `schemaVersion`, stable `id`, `examType`, book/test/part,
 title, instructions, asset-relative audio path, SHA-256, transcript and questions.
 Transcript includes complete English/Chinese and ordered bilingual segments.
