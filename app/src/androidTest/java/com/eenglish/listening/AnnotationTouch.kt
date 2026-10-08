@@ -28,7 +28,19 @@ fun selectionMenu(label: String) {
     val item = withText(label)
     // FloatingToolbar is a separate non-focusable platform window, not Activity's decor.
     Espresso.onView(item).inRoot(withDecorView(hasDescendant(item))).perform(click())
-    if (label == "复制") dismissClipboardPreview()
+    if (label == "复制" || label == "复制整块高亮") dismissClipboardPreview()
+}
+fun tapCharacter(offset: Int, rightHalf: Boolean = false) = object : ViewAction {
+    override fun getDescription() = "Tap a character, optionally its right half"
+    override fun getConstraints(): Matcher<View> = isAssignableFrom(TextView::class.java)
+    override fun perform(controller: UiController, view: View) {
+        val text = view as TextView
+        val point = textPoint(text, offset)
+        if (rightHalf) point.x += (text.layout.getPrimaryHorizontal(offset + 1) - text.layout.getPrimaryHorizontal(offset)) * 0.75f - 2f
+        GeneralClickAction(Tap.SINGLE, { floatArrayOf(point.x, point.y) }, Press.FINGER,
+            InputDevice.SOURCE_TOUCHSCREEN, 0).perform(controller, view)
+        controller.loopMainThreadForAtLeast(300)
+    }
 }
 
 private fun dismissClipboardPreview() {

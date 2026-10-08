@@ -4,6 +4,9 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Typeface
+import android.graphics.Path
+import android.graphics.Rect
+import android.graphics.RectF
 import android.text.Spannable
 import android.text.style.BackgroundColorSpan
 import android.text.style.ForegroundColorSpan
@@ -13,6 +16,7 @@ import android.view.Menu
 import android.view.MenuItem
 import android.view.MotionEvent
 import android.view.ViewConfiguration
+import android.view.View
 import android.view.textclassifier.TextClassifier
 import android.widget.TextView
 import androidx.compose.material3.MaterialTheme
@@ -74,6 +78,8 @@ class SelectableAnnotationTextView(context: Context) : TextView(context) {
     private var downX = 0f
     private var downY = 0f
     private var actionMode: ActionMode? = null
+    private var blockActionMode: ActionMode? = null
+    private var activeBlock: HighlightRange? = null
     private var renderedRanges: List<HighlightRange> = emptyList()
     init {
         setTextIsSelectable(true)
@@ -117,35 +123,112 @@ class SelectableAnnotationTextView(context: Context) : TextView(context) {
     }
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            blockActionMode?.finish()
             wasSelectingAtDown = actionMode != null
             moved = false
             downX = event.x; downY = event.y
         }
-        if (event.actionMasked == MotionEvent.ACTION_MOVE) {
+        if (event.actionMasked == MotionEvent.ACTION_MOVE || event.actionMasked == MotionEvent.ACTION_UP) {
             val slop = ViewConfiguration.get(context).scaledTouchSlop
             if (kotlin.math.abs(event.x - downX) > slop || kotlin.math.abs(event.y - downY) > slop) moved = true
         }
+        if (event.actionMasked == MotionEvent.ACTION_CANCEL) moved = true
+        val shortTap = event.actionMasked == MotionEvent.ACTION_UP && !moved &&
+            event.eventTime - event.downTime < ViewConfiguration.getLongPressTimeout()
+        if (shortTap) {
+            highlightedAt(event.x, event.y)?.let { range ->
+                // Cancel the native tap (including double-tap word selection), not the long press.
+                val cancel = MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_CANCEL }
+                try { super.onTouchEvent(cancel) } finally { cancel.recycle() }
+                showBlockMenu(range, event.x, event.y)
+                return true // A highlighted option must never also select an answer.
+            }
+        }
         val handled = super.onTouchEvent(event)
-        if (event.actionMasked == MotionEvent.ACTION_UP && !wasSelectingAtDown && !moved &&
-            event.eventTime - event.downTime < ViewConfiguration.getLongPressTimeout()) onTap?.invoke()
+        if (shortTap && !wasSelectingAtDown) onTap?.invoke()
         return handled
     }
+    private fun highlightedAt(x: Float, y: Float): HighlightRange? {
+        val layout = layout ?: return null
+        val localX = x - totalPaddingLeft + scrollX
+        val localY = y - totalPaddingTop + scrollY
+        if (localY < 0 || localY >= layout.height) return null
+        val line = layout.getLineForVertical(localY.toInt())
+        if (localX < layout.getLineLeft(line) || localX >= layout.getLineRight(line)) return null
+        val caret = layout.getOffsetForHorizontal(line, localX)
+        val previous = if (caret > 0) Character.offsetByCodePoints(text, caret, -1) else -1
+        // Layout returns the nearest caret, which can be AFTER the tapped character.
+        // Check its glyph box and the preceding code point so right-half taps stay exact.
+        val path = Path()
+        val bounds = RectF()
+        for (offset in listOf(caret, previous)) {
+            if (offset < layout.getLineStart(line) || offset >= layout.getLineEnd(line) || offset >= text.length) continue
+            path.reset()
+            layout.getSelectionPath(offset, Character.offsetByCodePoints(text, offset, 1), path)
+            path.computeBounds(bounds, true)
+            if (bounds.contains(localX, localY)) return renderedRanges.firstOrNull { offset >= it.start && offset < it.end }
+        }
+        return null
+    }
+    private fun showBlockMenu(range: HighlightRange, x: Float, y: Float) {
+        actionMode?.finish()
+        blockActionMode?.finish()
+        val original = text.toString()
+        activeBlock = range
+        blockActionMode = startActionMode(object : ActionMode.Callback2() {
+            override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
+                menu.add(0, COPY_BLOCK, 0, "复制整块高亮").setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
+                menu.add(0, REMOVE, 1, "取消整块高亮").setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
+                return true
+            }
+            override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
+                menu.findItem(REMOVE)?.isEnabled = canAnnotate
+                return false
+            }
+            override fun onGetContentRect(mode: ActionMode, view: View, rect: Rect) {
+                val radius = (8 * resources.displayMetrics.density).toInt()
+                rect.set(x.toInt() - radius, y.toInt() - radius, x.toInt() + radius, y.toInt() + radius)
+            }
+            override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
+                if (text.toString() == original && range in renderedRanges) {
+                    when (item.itemId) {
+                        COPY_BLOCK -> (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
+                            .setPrimaryClip(ClipData.newPlainText("E-English", original.substring(range.start, range.end)))
+                        REMOVE -> if (canAnnotate) onMark(range.start, range.end, false)
+                        else -> return false
+                    }
+                }
+                mode.finish()
+                return true
+            }
+            override fun onDestroyActionMode(mode: ActionMode) {
+                if (blockActionMode == mode) { blockActionMode = null; activeBlock = null }
+            }
+        }, ActionMode.TYPE_FLOATING)
+        if (blockActionMode == null) activeBlock = null
+    }
+    override fun onDetachedFromWindow() {
+        blockActionMode?.finish()
+        super.onDetachedFromWindow()
+    }
     fun render(value: String, ranges: List<HighlightRange>) {
+        val merged = HighlightRanges.merge(ranges)
         val changed = text.toString() != value
+        if (changed || activeBlock?.let { it !in merged } == true) blockActionMode?.finish()
         if (changed) {
             actionMode?.finish()
             setText(value, BufferType.SPANNABLE)
         }
-        if (!changed && renderedRanges == ranges) return
+        if (!changed && renderedRanges == merged) return
         val spans = text as Spannable
         spans.getSpans(0, spans.length, PermanentBackground::class.java).forEach(spans::removeSpan)
         spans.getSpans(0, spans.length, PermanentForeground::class.java).forEach(spans::removeSpan)
-        ranges.forEach {
+        merged.forEach {
             spans.setSpan(PermanentBackground(), it.start, it.end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
             spans.setSpan(PermanentForeground(), it.start, it.end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
-        renderedRanges = ranges
+        renderedRanges = merged
         invalidate()
     }
-    companion object { private const val ADD = 0x6E0101; private const val REMOVE = 0x6E0102 }
+    companion object { private const val ADD = 0x6E0101; private const val REMOVE = 0x6E0102; private const val COPY_BLOCK = 0x6E0103 }
 }

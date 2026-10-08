@@ -13,8 +13,12 @@ data class AnnotationChange(val key: HighlightKey, val start: Int, val end: Int,
 object HighlightRanges {
     fun add(existing: List<HighlightRange>, start: Int, end: Int, time: Long): List<HighlightRange> {
         require(start >= 0 && end > start)
+        return merge(existing + HighlightRange(start, end, time))
+    }
+    /** Merge by actual displayed UTF-16 positions; unmarked separators remain gaps. */
+    fun merge(ranges: List<HighlightRange>): List<HighlightRange> {
         val result = mutableListOf<HighlightRange>()
-        (existing + HighlightRange(start, end, time)).sortedBy { it.start }.forEach { next ->
+        ranges.sortedBy { it.start }.forEach { next ->
             val last = result.lastOrNull()
             if (last != null && next.start <= last.end) {
                 result[result.lastIndex] = HighlightRange(last.start, maxOf(last.end, next.end), minOf(last.createdAt, next.createdAt))

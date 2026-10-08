@@ -85,6 +85,61 @@ class AnnotationUiTest {
         textAt(tag).perform(pressWord(start + 1), selectionAction(start, end))
         menu(if (add) "高亮" else "取消高亮")
     }
+    @Test fun tapMergedHighlightCopiesWholeRangeAndRemovesOnlyThatBlock() {
+        val document = AnnotationDocument.transcript(part.transcript, "en")
+        runBlocking(Dispatchers.IO) {
+            app.annotations.change(document.selection(part.id, 4, 10), true)
+            app.annotations.change(document.selection(part.id, 10, 14), true)
+            app.annotations.change(document.selection(part.id, 15, 21), true)
+        }
+        waitRanges("transcript-en", listOf(4 to 14, 15 to 21))
+        // Right half of the last highlighted glyph must not resolve to the next caret/gap.
+        textAt("transcript-en").perform(tapCharacter(13, rightHalf = true))
+        menu("复制整块高亮")
+        compose.runOnIdle {
+            val clipboard = compose.activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            assertEquals("repeat two", clipboard.primaryClip!!.getItemAt(0).text.toString())
+        }
+        textAt("transcript-en").perform(tapCharacter(5), tapCharacter(8))
+        menu("取消整块高亮")
+        waitRanges("transcript-en", listOf(15 to 21))
+        // The repeated word at the second exact location remains independently operable.
+        textAt("transcript-en").perform(tapCharacter(17))
+        menu("复制整块高亮")
+        compose.runOnIdle {
+            val clipboard = compose.activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            assertEquals("repeat", clipboard.primaryClip!!.getItemAt(0).text.toString())
+        }
+        waitRanges("transcript-en", listOf(15 to 21))
+    }
+    @Test fun highlightedOptionTapDoesNotAnswerAndLongPressStillCancelsPartialRange() {
+        compose.onNodeWithTag("transcript-drag-handle").performTouchInput { swipe(center, center + Offset(0f, -160f), 400) }
+        compose.onNodeWithTag("option-21-B").performScrollTo()
+        textAt("option-text-21-B").perform(tapCharacter(5))
+        compose.onNodeWithTag("option-21-B").assertIsSelected()
+        val option = part.questions.first().options.first()
+        val document = AnnotationDocument.single("${option.id}. ${option.text}", "question", "${part.questions.first().id}/option:${option.id}", "und")
+        runBlocking(Dispatchers.IO) { app.annotations.change(document.selection(part.id, 3, 8), true) }
+        compose.waitUntil(10000) { ranges("option-text-21-A") == listOf(3 to 8) }
+        compose.onNodeWithTag("option-21-A").performScrollTo()
+        val before = selections
+        textAt("option-text-21-A").perform(tapCharacter(5))
+        menu("复制整块高亮")
+        compose.runOnIdle {
+            val clipboard = compose.activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            assertEquals("First", clipboard.primaryClip!!.getItemAt(0).text.toString())
+        }
+        assertEquals(before, selections)
+        compose.onNodeWithTag("option-21-B").assertIsSelected()
+        textAt("option-text-21-A").perform(pressWord(5), selectionAction(4, 6))
+        menu("取消高亮")
+        compose.waitUntil(10000) { ranges("option-text-21-A") == listOf(3 to 4, 6 to 8) }
+        assertEquals(before, selections)
+        compose.onNodeWithTag("option-21-B").assertIsSelected()
+        compose.onNodeWithTag("option-21-C").performScrollTo()
+        textAt("option-text-21-C").perform(tapCharacter(5))
+        compose.onNodeWithTag("option-21-C").assertIsSelected()
+    }
     @Test fun longPressCopiesExactWordAndMultilineSelectionAndHighlightPersistsAfterNavigation() {
         textAt("transcript-en").perform(pressWord(6))
         compose.runOnIdle {

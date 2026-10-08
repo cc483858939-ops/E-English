@@ -6,6 +6,17 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class HighlightTest {
+    @Test fun displayedRangesMergeAdjacentAndOverlappingPositionsButKeepUnmarkedGaps() {
+        assertEquals(listOf(HighlightRange(0, 7, 1), HighlightRange(10, 13, 2)),
+            HighlightRanges.merge(listOf(HighlightRange(4, 7, 3), HighlightRange(0, 4, 1),
+                HighlightRange(2, 5, 4), HighlightRange(10, 13, 2))))
+    }
+    @Test fun paragraphSeparatorsRemainSeparateBlocksInDisplayedCoordinates() {
+        val transcript = Transcript("abc\n\ndef", "甲乙\n\n丙丁", listOf(TranscriptSegment("abc", "甲乙"), TranscriptSegment("def", "丙丁")))
+        val document = AnnotationDocument.transcript(transcript, "en")
+        val marked = document.selection("p", 0, 8).map { Highlight(it.key, HighlightRange(it.start, it.end, 1)) }
+        assertEquals(listOf(HighlightRange(0, 3, 1), HighlightRange(5, 8, 1)), HighlightRanges.merge(document.visibleRanges("p", marked)))
+    }
     @Test fun duplicateOverlappingAndAdjacentRangesMerge() {
         val original = listOf(HighlightRange(2, 7, 10))
         assertEquals(original, HighlightRanges.add(original, 2, 7, 20))
