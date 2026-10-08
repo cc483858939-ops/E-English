@@ -419,6 +419,184 @@ class ShellNavigationTest {
             .assertTextEquals("标准答案：${correct.id}. ${correct.text}")
     }
 
+    @Test fun handleContinuouslyResizesWithoutSnappingAndRespectsBounds() {
+        openPractice()
+        openTranscript()
+        val initial = panelHeight()
+        val handle = compose.onNodeWithTag("transcript-drag-handle")
+        handle.performTouchInput { down(center); moveBy(Offset(0f, -70f)) }
+        val first = panelHeight()
+        assertTrue("Height must change before finger release", first > initial + 20f)
+        handle.performTouchInput { moveBy(Offset(0f, -31f)) }
+        assertTrue("Height must continuously follow the finger", panelHeight() > first + 20f)
+        handle.performTouchInput { up() }
+        dragPanelTo(0.613f)
+        val released = panelHeight()
+        assertEquals(0.613f, panelRatio(), 0.015f)
+        compose.mainClock.advanceTimeBy(1000)
+        compose.waitForIdle()
+        assertEquals("No settling animation or snapping", released, panelHeight(), 1f)
+        dragPanelTo(0.40f)
+        assertTrue(panelHeight() < released)
+        val range = handle.fetchSemanticsNode().config[SemanticsProperties.ProgressBarRangeInfo].range
+        dragPanelTo(0.88f)
+        assertEquals(range.endInclusive, panelRatio(), 0.015f)
+        assertResizableRegions()
+        dragPanelTo(0.10f)
+        assertEquals(range.start, panelRatio(), 0.015f)
+        assertResizableRegions()
+    }
+
+    @Test fun collapseRestoresLastDraggedHeightAndRecreationRestoresPresentation() {
+        openPractice()
+        openTranscript()
+        dragPanelTo(0.65f)
+        val ratio = panelRatio()
+        assertEquals(0.65f, ratio, 0.015f)
+        compose.onNodeWithTag("transcript-card-toggle").performClick()
+        compose.onNodeWithTag("transcript-question-body").assertDoesNotExist()
+        assertTrue(panelRatio() < 0.25f)
+        compose.onNodeWithTag("transcript-card-toggle").performClick()
+        assertEquals(ratio, panelRatio(), 0.005f)
+        jumpInTranscript(27)
+        selectInTranscript(27, "B")
+        compose.onNodeWithText("中文翻译").performClick()
+        compose.onNodeWithTag("transcript-card-toggle").performClick()
+        compose.activityRule.scenario.recreate()
+        compose.onNodeWithTag("transcript-question-summary").assertTextEquals("Q.27 · 已选 B")
+        compose.onNodeWithTag("transcript-question-body").assertDoesNotExist()
+        compose.onNodeWithText("中文翻译").assertIsSelected()
+        compose.onNodeWithTag("transcript-card-toggle").performClick()
+        assertEquals(ratio, panelRatio(), 0.005f)
+        compose.onNodeWithTag("option-27-B").performScrollTo().assertIsSelected()
+        assertResizableRegions()
+    }
+
+    @Test fun resizingAtMiddleAndEndPreservesReadingAndQuestionOffsets() {
+        openPractice()
+        openTranscript()
+        compose.onNodeWithText("英中双语").performClick()
+        compose.onNodeWithTag("transcript-body").performTouchInput { swipeUp() }
+        compose.waitForIdle()
+        val middle = transcriptOffset()
+        assertTrue(middle > 0)
+        repeat(2) {
+            dragPanelTo(0.66f)
+            assertEquals(middle, transcriptOffset(), 2f)
+            dragPanelTo(0.37f)
+            assertEquals(middle, transcriptOffset(), 2f)
+        }
+        compose.onNodeWithText(vm.uiState.value.part!!.transcript.segments.last().english).performScrollTo()
+        val end = transcriptOffset()
+        assertTrue(end > middle)
+        repeat(3) {
+            dragPanelTo(0.70f)
+            assertEquals(end, transcriptOffset(), 2f)
+            compose.onNodeWithTag("transcript-card-toggle").performClick()
+            assertEquals(end, transcriptOffset(), 2f)
+            compose.onNodeWithTag("transcript-card-toggle").performClick()
+            assertEquals(end, transcriptOffset(), 2f)
+            dragPanelTo(0.38f)
+            assertEquals(end, transcriptOffset(), 2f)
+        }
+        compose.onNodeWithTag("option-21-C").performScrollTo()
+        val questionOffset = questionOffset()
+        assertTrue(questionOffset > 0)
+        dragPanelTo(0.70f)
+        assertEquals(questionOffset, questionOffset(), 2f)
+        dragPanelTo(0.38f)
+        assertEquals(questionOffset, questionOffset(), 2f)
+        assertEquals(end, transcriptOffset(), 2f)
+        jumpInTranscript(24)
+        assertEquals(end, transcriptOffset(), 2f)
+        // Ordinary scrolling in either content region must not resize the panel.
+        val height = panelHeight()
+        compose.onNodeWithTag("transcript-question-body").performTouchInput { swipeUp() }
+        compose.onNodeWithTag("transcript-body").performTouchInput { swipeDown() }
+        assertEquals(height, panelHeight(), 1f)
+    }
+
+    @Test fun tenDragGesturesKeepPlayerAndRoomAnswersShared() {
+        openPractice()
+        select(21, "A")
+        val sessionId = vm.uiState.value.attempt!!.session.id
+        openTranscript()
+        dragPanelTo(0.60f)
+        selectInTranscript(21, "B")
+        pressBack()
+        compose.onNodeWithTag("practice-list").performScrollToNode(hasTestTag("option-21-B"))
+        compose.onNodeWithTag("option-21-B").assertIsSelected()
+        openTranscript()
+        compose.waitUntil(15000) { vm.audio.state.value.ready }
+        val controller = vm.audio
+        compose.onNodeWithTag("audio-seek").performTouchInput {
+            swipe(Offset(width * 0.1f, centerY), Offset(width * 0.4f, centerY), 400)
+        }
+        compose.waitUntil(5000) { controller.state.value.positionMs > 90000 }
+        compose.onNodeWithTag("audio-toggle").performClick()
+        compose.waitUntil(10000) { controller.state.value.isPlaying }
+        var position = controller.state.value.positionMs
+        val player = compose.onNodeWithTag("transcript-player").fetchSemanticsNode().boundsInRoot
+        repeat(10) {
+            dragPanelTo(if (it % 2 == 0) 0.62f else 0.52f)
+            assertSame(controller, vm.audio)
+            assertTrue(controller.state.value.isPlaying)
+            assertTrue(controller.state.value.positionMs >= position)
+            position = controller.state.value.positionMs
+            assertEquals(player, compose.onNodeWithTag("transcript-player").fetchSemanticsNode().boundsInRoot)
+            assertEquals(sessionId, vm.uiState.value.attempt!!.session.id)
+        }
+        compose.onNodeWithTag("audio-toggle").performClick()
+        val app = compose.activity.application as TestListeningApplication
+        assertEquals(vm.uiState.value.answers, runBlocking(Dispatchers.IO) {
+            app.practices.all().single { it.session.id == sessionId }.selectedAnswers
+        })
+        assertEquals(1, vm.uiState.value.history.size)
+        compose.onNodeWithText("标准答案", substring = true).assertDoesNotExist()
+        assertResizableRegions()
+    }
+
+    private fun panelHeight() = compose.onNodeWithTag("transcript-question-panel").fetchSemanticsNode().boundsInRoot.height
+    private fun availableHeight() = compose.onNodeWithTag("intensive-content").fetchSemanticsNode().boundsInRoot.height
+    private fun panelRatio() = panelHeight() / availableHeight()
+    private fun questionOffset() = compose.onNodeWithTag("transcript-question-body").fetchSemanticsNode()
+        .config[SemanticsProperties.VerticalScrollAxisRange].value()
+
+    private fun dragPanelTo(ratio: Float) {
+        val delta = (ratio - panelRatio()) * availableHeight()
+        if (kotlin.math.abs(delta) < 1f) return
+        val slop = android.view.ViewConfiguration.get(compose.activity).scaledTouchSlop
+        val movement = delta + kotlin.math.sign(delta) * slop
+        compose.onNodeWithTag("transcript-drag-handle").performTouchInput {
+            swipe(center, center + Offset(0f, -movement), 400)
+        }
+        compose.waitForIdle()
+    }
+
+    private fun assertResizableRegions() {
+        val player = compose.onNodeWithTag("transcript-player").fetchSemanticsNode().boundsInRoot
+        val tabs = compose.onNodeWithTag("transcript-language-tabs").fetchSemanticsNode().boundsInRoot
+        val reading = compose.onNodeWithTag("transcript-body").fetchSemanticsNode().boundsInRoot
+        val panel = compose.onNodeWithTag("transcript-question-panel").fetchSemanticsNode().boundsInRoot
+        val body = compose.onNodeWithTag("transcript-question-body").fetchSemanticsNode().boundsInRoot
+        val handle = compose.onNodeWithTag("transcript-drag-handle").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        assertTrue(player.bottom <= tabs.top)
+        assertTrue(tabs.bottom <= reading.top)
+        assertTrue(reading.bottom <= panel.top)
+        assertTrue(body.top >= handle.bottom)
+        assertTrue(body.bottom <= panel.bottom)
+        assertTrue(reading.height >= 48f * compose.density.density)
+        assertTrue(body.height >= 48f * compose.density.density - 1f)
+        assertTrue(handle.height >= 48f * compose.density.density)
+        val toggle = compose.onNodeWithTag("transcript-card-toggle").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        assertTrue(handle.right <= toggle.left)
+        compose.runOnIdle {
+            val decor = compose.activity.window.decorView
+            val bars = requireNotNull(ViewCompat.getRootWindowInsets(decor)).getInsets(WindowInsetsCompat.Type.systemBars())
+            assertTrue(panel.bottom <= decor.height - bars.bottom)
+        }
+    }
+
     private fun selectInTranscript(number: Int, option: String) {
         compose.onNodeWithTag("option-$number-$option").performScrollTo().performClick()
         compose.waitUntil(10000) {

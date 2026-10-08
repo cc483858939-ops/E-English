@@ -1,0 +1,39 @@
+{
+  "date": "2026-10-08",
+  "baseCommit": "c88dd9d497135e3ecd9ffb0a12b4c805c06f6e1e",
+  "jvm": {
+    "tests": 12,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "androidSmall": {
+    "size": "720x1280",
+    "densityDpi": 320,
+    "fontScale": 1.3,
+    "tests": 24,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "androidNormal": {
+    "size": "1080x1920",
+    "densityDpi": 420,
+    "fontScale": 1.0,
+    "tests": 24,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "assembleDebug": "BUILD SUCCESSFUL",
+  "assembleDebugAndroidTest": "BUILD SUCCESSFUL",
+  "device": "cp1-api36 / emulator-5570 / API 36 x86_64",
+  "newDeviceTests": 4,
+  "existingDeviceTestsPreserved": 20,
+  "notVerified": [
+    "physical Android device",
+    "API 26 runtime",
+    "speaker or headphone output",
+    "airplane mode and process force-stop not rerun this round"
+  ]
+}

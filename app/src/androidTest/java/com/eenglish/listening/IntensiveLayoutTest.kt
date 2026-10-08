@@ -1,6 +1,7 @@
 package com.eenglish.listening
 
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import com.eenglish.listening.audio.AudioState
@@ -50,5 +51,29 @@ class IntensiveLayoutTest {
         compose.onNodeWithTag("audio-seek").assertIsDisplayed()
         compose.onNodeWithTag("transcript-card-toggle").assertIsDisplayed()
         compose.onNodeWithText("标准答案", substring = true).assertDoesNotExist()
+        val offset = questionAxis.value()
+        compose.onNodeWithTag("transcript-body").performTouchInput { swipeUp() }
+        compose.waitForIdle()
+        val anchor = compose.onNodeWithTag("transcript-body").fetchSemanticsNode()
+            .config[SemanticsProperties.VerticalScrollAxisRange].value()
+        assertTrue(anchor > 0)
+        repeat(3) {
+            compose.onNodeWithTag("transcript-drag-handle").performTouchInput {
+                swipe(center, center + Offset(0f, -available.height * 0.18f), 400)
+            }
+            assertEquals(offset, compose.onNodeWithTag("transcript-question-body").fetchSemanticsNode()
+                .config[SemanticsProperties.VerticalScrollAxisRange].value(), 2f)
+            compose.onNodeWithTag("transcript-drag-handle").performTouchInput {
+                swipe(center, center + Offset(0f, available.height * 0.18f), 400)
+            }
+            assertEquals(offset, compose.onNodeWithTag("transcript-question-body").fetchSemanticsNode()
+                .config[SemanticsProperties.VerticalScrollAxisRange].value(), 2f)
+            assertEquals(anchor, compose.onNodeWithTag("transcript-body").fetchSemanticsNode()
+                .config[SemanticsProperties.VerticalScrollAxisRange].value(), 2f)
+        }
+        compose.onNodeWithTag("transcript-card-toggle").performClick()
+        compose.onNodeWithTag("transcript-card-toggle").performClick()
+        assertEquals(offset, compose.onNodeWithTag("transcript-question-body").fetchSemanticsNode()
+            .config[SemanticsProperties.VerticalScrollAxisRange].value(), 2f)
     }
 }

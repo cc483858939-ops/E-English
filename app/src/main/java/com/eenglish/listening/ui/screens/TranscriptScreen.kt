@@ -2,24 +2,20 @@ package com.eenglish.listening.ui.screens
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.eenglish.listening.R
 import com.eenglish.listening.ui.components.AudioControls
 import com.eenglish.listening.audio.AudioState
-import com.eenglish.listening.domain.model.Question
-import com.eenglish.listening.ui.components.QuestionCard
+import com.eenglish.listening.ui.components.ResizableQuestionPanel
 import com.eenglish.listening.viewmodel.PracticeUiState
 import com.eenglish.listening.viewmodel.TranscriptMode
 
@@ -37,21 +33,29 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
         mutableIntStateOf(questions.firstOrNull()?.number ?: 0)
     }
     var expanded by rememberSaveable(sessionId, state.part?.id) { mutableStateOf(true) }
+    var panelRatio by rememberSaveable(sessionId, state.part?.id) { mutableFloatStateOf(0.45f) }
+    var lastExpandedRatio by rememberSaveable(sessionId, state.part?.id) { mutableFloatStateOf(0.45f) }
     var showJump by rememberSaveable(sessionId, state.part?.id) { mutableStateOf(false) }
     val index = questions.indexOfFirst { it.number == questionNumber }.coerceAtLeast(0)
     val question = questions.getOrNull(index)
     val transcriptScroll = rememberScrollState()
+    val questionScroll = rememberScrollState()
     var readingOffsetToRestore by remember { mutableStateOf<Int?>(null) }
+    var questionOffsetToRestore by remember { mutableStateOf<Int?>(null) }
+    var resizeReadingAnchor by remember { mutableStateOf<Int?>(null) }
+    var resizeQuestionAnchor by remember { mutableStateOf<Int?>(null) }
+    var restoreRequest by remember { mutableIntStateOf(0) }
     var cardHeaderHeightPx by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
-    LaunchedEffect(expanded) {
-        readingOffsetToRestore?.let { offset ->
-            // A child may briefly measure with its previous viewport during a resize.
-            // Restore only after the new card and transcript bounds have been laid out.
-            withFrameNanos { }
-            transcriptScroll.scrollTo(offset)
-            readingOffsetToRestore = null
-        }
+    LaunchedEffect(question?.id) { questionScroll.scrollTo(0) }
+    LaunchedEffect(restoreRequest) {
+        // Only restore after a resize gesture or toggle, never on every drag frame/recomposition.
+        if (readingOffsetToRestore == null && questionOffsetToRestore == null) return@LaunchedEffect
+        withFrameNanos { }
+        readingOffsetToRestore?.let { if (!transcriptScroll.isScrollInProgress) transcriptScroll.scrollTo(it) }
+        questionOffsetToRestore?.let { if (!questionScroll.isScrollInProgress) questionScroll.scrollTo(it) }
+        readingOffsetToRestore = null
+        questionOffsetToRestore = null
     }
 
     if (showJump && question != null) {
@@ -89,7 +93,8 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
             state.error?.let {
                 Text(it, Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.error)
             }
-            ScrollableTabRow(selectedTabIndex = mode.ordinal, edgePadding = 0.dp) {
+            ScrollableTabRow(selectedTabIndex = mode.ordinal, edgePadding = 0.dp,
+                modifier = Modifier.testTag("transcript-language-tabs")) {
                 TranscriptMode.entries.forEach { item ->
                     val label = when (item) {
                         TranscriptMode.ENGLISH -> R.string.transcript_english
@@ -100,15 +105,31 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
                 }
             }
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().testTag("intensive-content")) {
-                val expandedHeight = maxHeight * 0.5f
                 val headerHeight = if (cardHeaderHeightPx == 0) 48.dp else with(density) { cardHeaderHeightPx.toDp() }
-                // Keep the scroll range unchanged on collapse, including when reading near the end.
-                // Extra space after the transcript prevents the larger viewport from clamping its offset.
-                val readingEndSpace = if (question != null && !expanded)
-                    (expandedHeight - headerHeight).coerceAtLeast(0.dp) else 0.dp
+                // On unusually short viewports, navigation joins the scrollable question body.
+                val fixedNavigation = maxHeight >= headerHeight + 48.dp + 1.dp + 96.dp
+                val chromeHeight = headerHeight + 1.dp + if (fixedNavigation) 48.dp else 0.dp
+                val minimumViewport = ((maxHeight - chromeHeight) / 2f).coerceIn(1.dp, 48.dp)
+                val minimumPanel = (maxHeight * 0.25f).coerceAtLeast(chromeHeight + minimumViewport)
+                    .coerceAtMost((maxHeight - minimumViewport).coerceAtLeast(headerHeight))
+                val maximumPanel = (maxHeight * 0.75f).coerceAtMost(maxHeight - minimumViewport)
+                    .coerceAtLeast(minimumPanel)
+                val panelHeight = when {
+                    question == null -> 0.dp
+                    !expanded -> headerHeight
+                    else -> (maxHeight * panelRatio).coerceIn(minimumPanel, maximumPanel)
+                }
+                val readingHeight = (maxHeight - panelHeight).coerceAtLeast(1.dp)
+                // Pair an explicit viewport height with tail padding. Both scroll ranges remain
+                // constant throughout a drag, so growing viewports cannot truncate end offsets.
+                val readingEndSpace = if (question != null) (maximumPanel - panelHeight).coerceAtLeast(0.dp) else 0.dp
+                val availablePx = with(density) { maxHeight.toPx() }
+                val availableHeight = maxHeight
+                val minimumRatio = minimumPanel / maxHeight
+                val maximumRatio = maximumPanel / maxHeight
                 Column(Modifier.fillMaxSize()) {
                     Column(
-                        Modifier.weight(1f).fillMaxWidth().testTag("transcript-body")
+                        Modifier.height(readingHeight).fillMaxWidth().testTag("transcript-body")
                             .verticalScroll(transcriptScroll)
                             .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 16.dp + readingEndSpace),
                         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -130,57 +151,49 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
                         } else Text("暂无已导入原文")
                     }
                     if (question != null) {
-                        TranscriptQuestionPanel(question, state.answers[question.id], expanded, expandedHeight,
+                        ResizableQuestionPanel(question, state.answers[question.id], expanded, panelHeight, minimumPanel,
+                            headerHeight = headerHeight, fixedNavigation = fixedNavigation, questionScroll = questionScroll,
+                            heightRatio = panelHeight / availableHeight, ratioRange = minimumRatio..maximumRatio,
                             editable = !state.submitted && !state.submitting && state.attempt != null,
                             submitted = state.submitted, hasPrevious = index > 0, hasNext = index < questions.lastIndex,
                             onExpand = {
                                 if (readingOffsetToRestore == null) readingOffsetToRestore = transcriptScroll.value
+                                questionOffsetToRestore = questionScroll.value
+                                if (expanded) {
+                                    lastExpandedRatio = panelHeight / availableHeight
+                                    panelRatio = headerHeight / availableHeight
+                                } else panelRatio = lastExpandedRatio
                                 expanded = !expanded
+                                restoreRequest++
                             },
                             onPrevious = { questionNumber = questions[index - 1].number },
                             onNext = { questionNumber = questions[index + 1].number },
                             onJump = { showJump = true }, onSelect = { onSelect(question.id, it) },
-                            onHeaderSize = { cardHeaderHeightPx = it })
+                            onHeaderSize = { cardHeaderHeightPx = it },
+                            onResizeStarted = {
+                                resizeReadingAnchor = transcriptScroll.value
+                                resizeQuestionAnchor = questionScroll.value
+                            },
+                            onResizeDelta = { delta ->
+                                panelRatio = (panelRatio.coerceIn(minimumRatio, maximumRatio) - delta / availablePx)
+                                    .coerceIn(minimumRatio, maximumRatio)
+                                lastExpandedRatio = panelRatio
+                            },
+                            onResizeStopped = {
+                                readingOffsetToRestore = resizeReadingAnchor
+                                questionOffsetToRestore = resizeQuestionAnchor
+                                resizeReadingAnchor = null
+                                resizeQuestionAnchor = null
+                                restoreRequest++
+                            },
+                            onSetRatio = { ratio ->
+                                readingOffsetToRestore = transcriptScroll.value
+                                questionOffsetToRestore = questionScroll.value
+                                panelRatio = ratio.coerceIn(minimumRatio, maximumRatio)
+                                lastExpandedRatio = panelRatio
+                                restoreRequest++
+                            })
                     }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun TranscriptQuestionPanel(question: Question, selected: String?, expanded: Boolean, expandedHeight: Dp,
-    editable: Boolean, submitted: Boolean, hasPrevious: Boolean, hasNext: Boolean,
-    onExpand: () -> Unit, onPrevious: () -> Unit, onNext: () -> Unit, onJump: () -> Unit,
-    onSelect: (String) -> Unit, onHeaderSize: (Int) -> Unit) {
-    val questionScroll = rememberScrollState()
-    LaunchedEffect(question.id) { questionScroll.scrollTo(0) }
-    Surface(shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp), tonalElevation = 2.dp,
-        modifier = Modifier.fillMaxWidth().testTag("transcript-question-panel")) {
-        Column(Modifier.then(if (expanded) Modifier.height(expandedHeight) else Modifier)
-            .padding(horizontal = 12.dp)) {
-            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).onSizeChanged { onHeaderSize(it.height) },
-                verticalAlignment = Alignment.CenterVertically) {
-                Text("Q.${question.number} · ${selected?.let { "已选 $it" } ?: "未作答"}",
-                    style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier.weight(1f).testTag("transcript-question-summary"))
-                TextButton(onClick = onExpand, modifier = Modifier.testTag("transcript-card-toggle")) {
-                    Text(if (expanded) "收起" else "展开")
-                }
-            }
-            if (expanded) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    TextButton(onClick = onPrevious, enabled = hasPrevious,
-                        modifier = Modifier.testTag("transcript-previous")) { Text("上一题") }
-                    TextButton(onClick = onJump, modifier = Modifier.testTag("transcript-jump")) { Text("跳转题号") }
-                    TextButton(onClick = onNext, enabled = hasNext,
-                        modifier = Modifier.testTag("transcript-next")) { Text("下一题") }
-                }
-                HorizontalDivider()
-                Column(Modifier.weight(1f).fillMaxWidth().testTag("transcript-question-body")
-                    .verticalScroll(questionScroll).padding(horizontal = 4.dp)) {
-                    if (submitted) Text("已提交 · 只读", style = MaterialTheme.typography.labelMedium)
-                    QuestionCard(question, selected, editable, showResult = submitted, onSelect = onSelect)
                 }
             }
         }
