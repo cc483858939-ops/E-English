@@ -12,7 +12,7 @@ import androidx.compose.ui.unit.dp
 import com.eenglish.listening.domain.model.Question
 
 @Composable
-fun QuestionCard(question: Question, selected: String?, editable: Boolean, onSelect: (String) -> Unit) {
+fun QuestionCard(question: Question, selected: String?, editable: Boolean, showResult: Boolean = false, onSelect: (String) -> Unit) {
     Column(Modifier.fillMaxWidth().padding(vertical = 12.dp).selectableGroup()) {
         Text("Q.${question.number}", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.testTag("question-${question.number}"))
@@ -25,6 +25,13 @@ fun QuestionCard(question: Question, selected: String?, editable: Boolean, onSel
                 RadioButton(selected = selected == option.id, onClick = null, enabled = editable)
                 Text("${option.id}. ${option.text}", Modifier.padding(top = 12.dp).weight(1f))
             }
+        }
+        if (showResult) {
+            val chosen = question.options.find { it.id == selected }
+            val correct = question.options.single { it.id == question.correctAnswer }
+            Text("你的答案：${chosen?.let { "${it.id}. ${it.text}" } ?: "未作答"}",
+                color = if (selected == correct.id) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+            Text("标准答案：${correct.id}. ${correct.text}", modifier = Modifier.padding(top = 8.dp).testTag("result-${question.number}"))
         }
     }
 }

@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.eenglish.listening.domain.model.ListeningPart
+import com.eenglish.listening.domain.model.SessionStatus
 import com.eenglish.listening.ui.components.PageHeader
 import com.eenglish.listening.viewmodel.PracticeUiState
 
@@ -32,8 +33,13 @@ fun PartListScreen(state: PracticeUiState, onOpen: (ListeningPart) -> Unit) {
                         Text("Cambridge IELTS ${part.book}", style = MaterialTheme.typography.titleLarge)
                         Text("Test ${part.test} · Part ${part.part}")
                         Text("${part.questions.size} Questions · ${part.questions.first().number}–${part.questions.last().number}")
-                        Text(if (state.answers.isEmpty()) "未开始" else "进行中", color = MaterialTheme.colorScheme.primary)
-                        Button(onClick = { onOpen(part) }) { Text("开始练习") }
+                        val latest = state.history.firstOrNull { it.session.partId == part.id }
+                        Text(when (latest?.session?.status) {
+                            SessionStatus.IN_PROGRESS -> "进行中"
+                            SessionStatus.SUBMITTED -> "已完成"
+                            null -> "未开始"
+                        }, color = MaterialTheme.colorScheme.primary)
+                        Button(onClick = { onOpen(part) }, enabled = !state.saving) { Text("开始练习") }
                     }
                 }
             }
