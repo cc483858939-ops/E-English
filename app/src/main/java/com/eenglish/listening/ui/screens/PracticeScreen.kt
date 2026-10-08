@@ -22,6 +22,8 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
     onSelect: (String, String) -> Unit, onBack: () -> Unit, onViewTranscript: () -> Unit,
     onSubmit: () -> Unit, onConfirm: () -> Unit, onDismiss: () -> Unit, onNew: () -> Unit, onHistory: (String) -> Unit) {
     val listState = rememberLazyListState()
+    val resumeDraft = state.submitted && state.history.firstOrNull { it.session.partId == state.part?.id }
+        ?.session?.status == SessionStatus.IN_PROGRESS
     LaunchedEffect(state.attempt?.session?.id, state.submitted) { listState.scrollToItem(0) }
     if (state.confirmMissing != null) AlertDialog(onDismissRequest = onDismiss,
         title = { Text("还有 ${state.confirmMissing} 题未作答") },
@@ -32,7 +34,7 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
         Button(onClick = if (state.submitted) onNew else onSubmit,
             enabled = state.attempt != null && !state.saving && !state.submitting,
             modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(16.dp)) {
-            Text(if (state.submitted) "重新练习" else if (state.saving) "正在保存…" else "提交答案")
+            Text(if (resumeDraft) "继续未完成练习" else if (state.submitted) "重新练习" else if (state.saving) "正在保存…" else "提交答案")
         }
     }) { insets ->
         LazyColumn(Modifier.fillMaxSize().padding(insets).testTag("practice-list"), state = listState, contentPadding = PaddingValues(20.dp)) {

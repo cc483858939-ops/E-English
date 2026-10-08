@@ -11,6 +11,7 @@ import re
 import shutil
 import tempfile
 import zipfile
+from html.parser import HTMLParser
 
 PREFIX = "sample-data/Cambridge-9/Test1/Part3/"
 NUMBERS = list(range(21, 31))
@@ -86,6 +87,54 @@ def nonblank(text):
     return [line.strip() for line in text.splitlines() if line.strip()]
 
 
+class Snapshot(HTMLParser):
+    """Read source snapshots as inert data; do not execute HTML or scripts."""
+    def __init__(self):
+        super().__init__()
+        self.depth = 0
+        self.number = None
+        self.root = 0
+        self.blocks = {}
+        self.audio = []
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "audio":
+            self.audio.append(attrs.get("src"))
+        if tag == "div":
+            self.depth += 1
+            value = attrs.get("id", "")
+            if value.startswith("titleNum"):
+                require(value[8:].isdigit(), "Invalid HTML question ID")
+                number = int(value[8:])
+                require(number not in self.blocks and self.number is None, "Duplicate/nested HTML question")
+                self.number, self.root = number, self.depth
+                self.blocks[number] = []
+
+    def handle_data(self, text):
+        if self.number is not None:
+            self.blocks[self.number].append(text)
+
+    def handle_endtag(self, tag):
+        if tag == "div":
+            if self.number is not None and self.depth == self.root:
+                self.number = None
+            self.depth -= 1
+
+
+def validate_html(text, questions, local_audio=False):
+    snapshot = Snapshot()
+    snapshot.feed(text)
+    require(list(snapshot.blocks) == NUMBERS, "HTML question numbers disagree")
+    for question in questions:
+        content = "".join(snapshot.blocks[question["number"]])
+        require(question["prompt"] in content
+                and all(option["text"] in content for option in question["options"]),
+                "HTML prompt/options disagree with questions.txt")
+    if local_audio:
+        require(snapshot.audio == ["audio.mp3"], "HTML references nonlocal or unexpected audio")
+
+
 def convert(read):
     metadata = read_json(read("part.json").decode("utf-8-sig"))
     require((metadata["book"], metadata["test"], metadata["part"]) == (9, 1, 3), "Wrong sample identity")
@@ -97,10 +146,18 @@ def convert(read):
     questions = parse_questions(read("questions.txt").decode("utf-8-sig"))
     answers = read_json(read("answers.json").decode("utf-8-sig"))
     parse_answers(answers, metadata, questions)
+    expected_answers = [f"{q['number']}. {q['correctAnswer']}" for q in questions]
+    require(nonblank(read("answers.txt").decode("utf-8-sig")) == expected_answers,
+            "Plain text answers disagree")
+    validate_html(read("content.html").decode("utf-8-sig"), questions, local_audio=True)
+    validate_html(answers["snapshot_html"], questions)
+    validate_html(read("answers_snapshot.html").decode("utf-8-sig"), questions)
     timeline = read_json(read("timeline.json").decode("utf-8-sig"))
     require(isinstance(timeline, list) and len(timeline) == metadata["timeline"]["count"],
             "Transcript segment count mismatch")
     require([t["sort"] for t in timeline] == list(range(1, len(timeline) + 1)), "Transcript segment order mismatch")
+    require(all(0 <= t["start_ms"] < t["end_ms"] for t in timeline), "Invalid timeline range")
+    require(max(t["end_ms"] for t in timeline) == metadata["timeline"]["max_end_ms"], "Timeline metadata mismatch")
     english = read("transcript.txt").decode("utf-8-sig").strip()
     chinese = read("translation.txt").decode("utf-8-sig").strip()
     bilingual = read("bilingual.txt").decode("utf-8-sig")

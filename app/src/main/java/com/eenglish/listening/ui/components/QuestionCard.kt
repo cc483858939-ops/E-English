@@ -6,6 +6,7 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
@@ -21,9 +22,9 @@ fun QuestionCard(question: Question, selected: String?, editable: Boolean, showR
             HorizontalDivider()
             Row(Modifier.fillMaxWidth().testTag("option-${question.number}-${option.id}")
                 .selectable(selected == option.id, enabled = editable, role = Role.RadioButton, onClick = { onSelect(option.id) })
-                .padding(vertical = 12.dp)) {
+                .padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 RadioButton(selected = selected == option.id, onClick = null, enabled = editable)
-                Text("${option.id}. ${option.text}", Modifier.padding(top = 12.dp).weight(1f))
+                Text("${option.id}. ${option.text}", Modifier.weight(1f))
             }
         }
         if (showResult) {

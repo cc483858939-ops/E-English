@@ -3,7 +3,7 @@ import copy
 import tempfile
 import unittest
 from pathlib import Path
-from import_sample import parse_questions, parse_answers, read_json, import_sample, NUMBERS
+from import_sample import parse_questions, parse_answers, read_json, import_sample, validate_html, NUMBERS
 
 
 def questions_text():
@@ -39,6 +39,18 @@ class ImportTests(unittest.TestCase):
     def test_duplicate_json_key(self):
         with self.assertRaises(ValueError):
             read_json('{"a":1,"a":2}')
+
+    def test_inert_html_cross_check(self):
+        questions = parse_questions(questions_text())
+        html = '<audio src="audio.mp3"></audio>' + ''.join(
+            f'<div id="titleNum{q["number"]}">{q["prompt"]}' + ''.join(o['text'] for o in q['options']) + '</div>'
+            for q in questions)
+        validate_html(html, questions, local_audio=True)
+        for bad in [html.replace('audio.mp3', 'https://example.invalid/audio.mp3'),
+                    html.replace('titleNum22', 'titleNum21'),
+                    html.replace('Synthetic parser fixture 21', 'Different text')]:
+            with self.assertRaises(ValueError):
+                validate_html(bad, questions, local_audio=True)
 
     def test_answer_cross_checks(self):
         data = dict(expected_questions=NUMBERS, complete=True, captured_questions=10, parser_version='test',

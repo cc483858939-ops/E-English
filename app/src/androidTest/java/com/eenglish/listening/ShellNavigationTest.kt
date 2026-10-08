@@ -177,6 +177,15 @@ class ShellNavigationTest {
         compose.onNodeWithTag("history-$firstId").performClick()
         compose.onNodeWithTag("grade-summary").assertTextEquals("正确 10 / 10 · 错误 0 · 正确率 100%")
         assertEquals(firstId, vm.uiState.value.attempt!!.session.id)
+        compose.onNodeWithText("重新练习").performClick()
+        compose.waitUntil(10000) { !vm.uiState.value.saving && !vm.uiState.value.submitted }
+        val draftId = vm.uiState.value.attempt!!.session.id
+        compose.onNodeWithTag("practice-list").performScrollToNode(hasTestTag("history-$firstId"))
+        compose.onNodeWithTag("history-$firstId").performClick()
+        compose.onNodeWithText("继续未完成练习").performClick()
+        compose.waitUntil(10000) { !vm.uiState.value.saving && !vm.uiState.value.submitted }
+        assertEquals(draftId, vm.uiState.value.attempt!!.session.id)
+        assertEquals(3, vm.uiState.value.history.size)
     }
 
     @Test fun rapidSelectionEventsAreCommittedInOrder() {
