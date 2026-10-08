@@ -1,6 +1,7 @@
 package com.eenglish.listening
 
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.lifecycle.ViewModelProvider
@@ -268,6 +269,196 @@ class ShellNavigationTest {
         }
         compose.waitUntil(15000) { !vm.uiState.value.saving }
         assertEquals(mapOf(id to "B"), vm.uiState.value.answers)
+    }
+
+    @Test fun intensiveCardSwitchesAllQuestionsAndSharesRoomAnswersInBothDirections() {
+        openPractice()
+        select(21, "A")
+        val sessionId = vm.uiState.value.attempt!!.session.id
+        openTranscript()
+        compose.onNodeWithTag("transcript-question-summary").assertTextEquals("Q.21 · 已选 A")
+        compose.onNodeWithTag("transcript-previous").assertIsNotEnabled()
+        for (number in 22..30) {
+            compose.onNodeWithTag("transcript-next").performClick()
+            compose.onNodeWithTag("transcript-question-summary").assertTextEquals("Q.$number · 未作答")
+            compose.onNodeWithTag("question-$number").performScrollTo().assertIsDisplayed()
+        }
+        compose.onNodeWithTag("transcript-next").assertIsNotEnabled()
+        val last = vm.uiState.value.questions.last()
+        compose.onNodeWithText(last.prompt).performScrollTo().assertIsDisplayed()
+        last.options.forEach { compose.onNodeWithTag("option-30-${it.id}").performScrollTo().assertIsDisplayed() }
+        selectInTranscript(30, "B")
+        compose.onNodeWithTag("transcript-previous").performClick()
+        compose.onNodeWithTag("transcript-question-summary").assertTextEquals("Q.29 · 未作答")
+        compose.onNodeWithTag("transcript-next").performClick()
+        compose.onNodeWithTag("transcript-question-summary").assertTextEquals("Q.30 · 已选 B")
+        jumpInTranscript(24)
+        selectInTranscript(24, "A")
+        selectInTranscript(24, "B")
+        compose.onNodeWithTag("option-24-A").assertIsNotSelected()
+        compose.onNodeWithTag("option-24-B").assertIsSelected()
+        compose.onNodeWithTag("transcript-question-summary").assertTextEquals("Q.24 · 已选 B")
+        compose.onNodeWithText("标准答案", substring = true).assertDoesNotExist()
+        val committed = vm.uiState.value.answers.toMap()
+        val app = compose.activity.application as TestListeningApplication
+        assertEquals(committed, runBlocking(Dispatchers.IO) {
+            app.practices.all().single { it.session.id == sessionId }.selectedAnswers
+        })
+        pressBack()
+        for ((number, option) in listOf(21 to "A", 24 to "B", 30 to "B")) {
+            compose.onNodeWithTag("practice-list").performScrollToNode(hasTestTag("option-$number-$option"))
+            compose.onNodeWithTag("option-$number-$option").assertIsSelected()
+        }
+        select(24, "C")
+        openTranscript()
+        jumpInTranscript(24)
+        compose.onNodeWithTag("transcript-question-summary").assertTextEquals("Q.24 · 已选 C")
+        compose.onNodeWithTag("option-24-C").performScrollTo().assertIsSelected()
+        assertEquals(sessionId, vm.uiState.value.attempt!!.session.id)
+        assertEquals(1, vm.uiState.value.history.size)
+    }
+
+    @Test fun intensiveCardTogglesKeepReadingOffsetPlayerAndSavedPresentation() {
+        openPractice()
+        select(21, "B")
+        openTranscript()
+        compose.waitUntil(15000) { vm.audio.state.value.ready }
+        val controller = vm.audio
+        val playerBounds = compose.onNodeWithTag("transcript-player").fetchSemanticsNode().boundsInRoot
+        compose.onNodeWithTag("audio-seek").performTouchInput {
+            swipe(Offset(width * 0.1f, centerY), Offset(width * 0.4f, centerY), 600)
+        }
+        compose.waitUntil(5000) { controller.state.value.positionMs in 90000..300000 }
+        compose.onNodeWithTag("audio-toggle").performClick()
+        val firstPosition = controller.state.value.positionMs
+        compose.waitUntil(10000) { controller.state.value.isPlaying && controller.state.value.positionMs > firstPosition + 500 }
+        compose.onNodeWithTag("audio-toggle").performClick()
+        compose.waitUntil(5000) { !controller.state.value.isPlaying }
+        val pausedPosition = controller.state.value.positionMs
+        compose.onNodeWithText("英中双语").performClick()
+        compose.onNodeWithText(vm.uiState.value.part!!.transcript.segments.last().english).performScrollTo()
+        val readingOffset = transcriptOffset()
+        assertTrue(readingOffset > 0)
+        val answers = vm.uiState.value.answers.toMap()
+        repeat(3) {
+            assertIntensiveRegionsDoNotOverlap(expanded = true)
+            compose.onNodeWithTag("transcript-card-toggle").performClick()
+            compose.onNodeWithTag("transcript-question-body").assertDoesNotExist()
+            compose.onNodeWithTag("transcript-question-summary").assertTextEquals("Q.21 · 已选 B")
+            assertEquals(readingOffset, transcriptOffset(), 2f)
+            assertIntensiveRegionsDoNotOverlap(expanded = false)
+            compose.onNodeWithTag("transcript-card-toggle").performClick()
+            compose.onNodeWithTag("transcript-question-body").assertIsDisplayed()
+            assertEquals(readingOffset, transcriptOffset(), 2f)
+            assertEquals(playerBounds, compose.onNodeWithTag("transcript-player").fetchSemanticsNode().boundsInRoot)
+            assertSame(controller, vm.audio)
+            assertTrue(controller.state.value.positionMs in (pausedPosition - 500)..(pausedPosition + 500))
+            assertEquals(answers, vm.uiState.value.answers)
+        }
+        jumpInTranscript(24)
+        selectInTranscript(24, "A")
+        compose.onNodeWithTag("transcript-card-toggle").performClick()
+        val restoredOffset = transcriptOffset()
+        compose.activityRule.scenario.recreate()
+        compose.onNodeWithTag("transcript-question-summary").assertTextEquals("Q.24 · 已选 A")
+        compose.onNodeWithTag("transcript-question-body").assertDoesNotExist()
+        compose.onNodeWithText("英中双语").assertIsSelected()
+        assertEquals(restoredOffset, transcriptOffset(), 2f)
+        compose.onNodeWithTag("transcript-card-toggle").performClick()
+        compose.onNodeWithTag("option-24-A").performScrollTo().assertIsSelected()
+        compose.onNodeWithTag("audio-toggle").performClick()
+        compose.waitUntil(10000) { controller.state.value.isPlaying }
+        val playingPosition = controller.state.value.positionMs
+        repeat(2) { compose.onNodeWithTag("transcript-card-toggle").performClick() }
+        assertSame(controller, vm.audio)
+        assertTrue(controller.state.value.isPlaying)
+        assertTrue(controller.state.value.positionMs >= playingPosition)
+        compose.onNodeWithTag("audio-toggle").performClick()
+    }
+
+    @Test fun intensiveSubmittedAndHistoricalCardsAreReadOnly() {
+        openPractice()
+        val question = vm.uiState.value.questions.first()
+        val wrong = question.options.first { it.id != question.correctAnswer }
+        select(question.number, wrong.id)
+        compose.onNodeWithText("提交答案").performClick()
+        compose.onNodeWithText("确认提交").performClick()
+        compose.waitUntil(10000) { vm.uiState.value.submitted && !vm.uiState.value.saving }
+        val completed = vm.uiState.value.attempt!!
+        openTranscript()
+        assertSubmittedTranscriptQuestion(question.number, wrong.id)
+        val chosen = vm.uiState.value.answers.toMap()
+        compose.onNodeWithTag("option-${question.number}-${question.correctAnswer}").performScrollTo()
+            .performTouchInput { click() }
+        compose.runOnIdle { vm.selectAnswer(question.id, question.correctAnswer) }
+        assertEquals(chosen, vm.uiState.value.answers)
+        pressBack()
+        compose.onNodeWithText("重新练习").performClick()
+        compose.waitUntil(10000) { !vm.uiState.value.saving && !vm.uiState.value.submitted }
+        select(question.number, question.correctAnswer)
+        compose.onNodeWithTag("practice-list").performScrollToNode(hasTestTag("history-${completed.session.id}"))
+        compose.onNodeWithTag("history-${completed.session.id}").performClick()
+        openTranscript()
+        assertSubmittedTranscriptQuestion(question.number, wrong.id)
+        val app = compose.activity.application as TestListeningApplication
+        assertEquals(completed, runBlocking(Dispatchers.IO) {
+            app.practices.all().single { it.session.id == completed.session.id }
+        })
+        assertEquals(2, vm.uiState.value.history.size)
+    }
+
+    private fun assertSubmittedTranscriptQuestion(number: Int, selected: String) {
+        val question = vm.uiState.value.questions.single { it.number == number }
+        val correct = question.options.single { it.id == question.correctAnswer }
+        val userOption = question.options.single { it.id == selected }
+        compose.onNodeWithTag("transcript-question-summary").assertTextEquals("Q.$number · 已选 $selected")
+        compose.onNodeWithText("已提交 · 只读").assertExists()
+        question.options.forEach { compose.onNodeWithTag("option-$number-${it.id}").assertIsNotEnabled() }
+        compose.onNodeWithText("你的答案：${userOption.id}. ${userOption.text}").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("result-$number").performScrollTo().assertIsDisplayed()
+            .assertTextEquals("标准答案：${correct.id}. ${correct.text}")
+    }
+
+    private fun selectInTranscript(number: Int, option: String) {
+        compose.onNodeWithTag("option-$number-$option").performScrollTo().performClick()
+        compose.waitUntil(10000) {
+            !vm.uiState.value.saving && vm.uiState.value.answers[vm.uiState.value.questions.single { it.number == number }.id] == option
+        }
+    }
+
+    private fun jumpInTranscript(number: Int) {
+        compose.onNodeWithTag("transcript-jump").performClick()
+        for (item in 21..30) compose.onNodeWithTag("jump-$item").assertIsDisplayed()
+        compose.onNodeWithTag("jump-$number").performClick()
+    }
+
+    private fun transcriptOffset(): Float = compose.onNodeWithTag("transcript-body")
+        .fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value()
+
+    private fun assertIntensiveRegionsDoNotOverlap(expanded: Boolean) {
+        val player = compose.onNodeWithTag("transcript-player").fetchSemanticsNode().boundsInRoot
+        val reading = compose.onNodeWithTag("transcript-body").fetchSemanticsNode().boundsInRoot
+        val panel = compose.onNodeWithTag("transcript-question-panel").fetchSemanticsNode().boundsInRoot
+        val available = compose.onNodeWithTag("intensive-content").fetchSemanticsNode().boundsInRoot
+        assertTrue(player.bottom <= reading.top)
+        assertTrue(reading.bottom <= panel.top)
+        assertTrue("Transcript must keep at least half the reading area", reading.height >= available.height * 0.49f)
+        if (expanded) {
+            compose.onNodeWithTag("transcript-previous").assertIsDisplayed()
+            compose.onNodeWithTag("transcript-next").assertIsDisplayed()
+            compose.onNodeWithTag("transcript-jump").assertIsDisplayed()
+            assertTrue(compose.onNodeWithTag("transcript-question-body").fetchSemanticsNode().boundsInRoot.height > 0)
+        }
+        compose.onNodeWithTag("audio-toggle").assertIsDisplayed()
+        compose.onNodeWithTag("audio-seek").assertIsDisplayed()
+        compose.onNodeWithTag("audio-time").assertIsDisplayed()
+        val header = compose.onNodeWithTag("transcript-header").fetchSemanticsNode().boundsInRoot
+        compose.runOnIdle {
+            val decor = compose.activity.window.decorView
+            val bars = requireNotNull(ViewCompat.getRootWindowInsets(decor)).getInsets(WindowInsetsCompat.Type.systemBars())
+            assertTrue(header.top >= bars.top)
+            assertTrue(panel.bottom <= decor.height - bars.bottom)
+        }
     }
 
     private fun openPractice() {
