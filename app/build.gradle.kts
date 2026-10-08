@@ -7,6 +7,7 @@ plugins {
 android {
     namespace = "com.eenglish.listening"
     compileSdk = 36
+    buildToolsVersion = "35.0.0"
 
     defaultConfig {
         applicationId = "com.eenglish.listening"

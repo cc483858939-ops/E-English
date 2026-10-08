@@ -2,6 +2,7 @@
 .kotlin/
 .idea/
 .bootstrap/
+.local/
 **/build/
 local.properties
 *.iml
