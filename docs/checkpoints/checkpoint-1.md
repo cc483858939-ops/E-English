@@ -1,92 +1,116 @@
-# Checkpoint 1 检查报告
+# Checkpoint 1 验证报告
 
 日期：2026-10-08（Asia/Singapore）。
 
-**状态：工程骨架已创建；Android 编译、测试与可启动验收 BLOCKED，Checkpoint 1 尚未完整验收。停止，等待用户指令，不开始 Checkpoint 2。**
+**状态：本机 Android 编译、JVM 单元测试、API 36 模拟器导航测试和 Debug APK 安装启动均通过。申请第一阶段正式验收，等待用户确认；未开始 Checkpoint 2。**
 
-## 范围与仓库
+## 提交与验证范围
 
-- 创建独立目录 `D:\code\E-English`，从用户指定的 `https://github.com/cc483858939-ops/E-English.git` 克隆。远端为空仓库，无现有代码被覆盖。
-- 读取工作区 AGENTS.md、SOUL.md、USER.md；启动要求中的 BOOTSTRAP、当天/前一天日记与工作区 MEMORY.md 不存在。
-- 检查用户 ZIP 存在：`D:\Cambridge_9_Test_1_Part_3_Codex_Sample.zip`，1,707,977 字节。仅枚举 ZIP 文件名；题目与答案结构解析、MP3 检验、转换工具均留到 Checkpoint 2。
-- ZIP 中带 `sample-data/Cambridge-9/Test1/Part3/` 包装目录，含所需资源文件，并另有答案快照、README_for_Codex.md 和 manifest.json。文档内容不作为指令执行。
-- 本检查点仅本地提交；按“开发完后上传”的要求，最终完成开发后再推送指定仓库。版权试题和音频没有复制或提交。
+- 最初工程提交：`cb8988ae5abfb7a02ff95dbb6e07d883a9ee4a61`。此前因 SDK 缺失，编译与测试为 BLOCKED，不能视为通过。
+- 本次测试源代码提交：[881279686337242fc5d300c661ed3b115c5d6671](https://github.com/cc483858939-ops/E-English/commit/881279686337242fc5d300c661ed3b115c5d6671)。测试在相同工作区源码上完成后提交；报告、日志及截图在后续文档提交中加入，未再改变应用或测试源码。
+- 本阶段变更仅包括固定 Build Tools 35.0.0、忽略 D 盘本地 SDK/缓存目录、强化恢复与导航测试、更新验证文档。
+- 三个页面仍是占位页。播放、练习和提交入口保持禁用，没有导入题目、标准答案、原文、翻译或音频，没有实现 Checkpoint 2 功能。
 
-## 实际完成的代码
+## 已配置的开发环境
 
-- Kotlin、Compose / Material 3、Navigation Compose、Gradle Kotlin DSL、Version Catalog。
-- 单 Activity、手机竖屏、API 26 起、compileSdk/targetSdk 36、边到边布局的系统 inset 处理。
-- 三个独立占位页：试题列表、听力答题、听力原文；列表→答题→原文→返回的导航代码。
-- 列表只有目标 Part 的待导入卡片；开始练习禁用。独立“预览答题页”入口供骨架导航验证。
-- 禁用的音频和提交占位控件；没有假题目、选项、答案、成绩或音频时长。
-- 原文显示模式通过 Activity 级 ViewModel、StateFlow 和 SavedStateHandle 管理。这个显示模式状态不代表答案或成绩已持久化。
-- Room 和 Media3 稳定依赖已配置，实际实现留到指定阶段。预留 domain/model、domain/grading、data/repository、data/local、data/assets、audio、tools、tests 目录。
-- README、已知问题、源码与本机日志隔离，版权资源忽略规则已验证。
-
-## 环境检查
-
-| 项目 | 实际结果 |
+| 项目 | 实际安装或验证结果 |
 | --- | --- |
-| Git | 2.45.1.windows.1，可读取并克隆指定远端 |
-| Java / javac | Oracle JDK 21.0.8，JAVA_HOME 为 `D:\oracla` |
-| Gradle | 原来不在 PATH；缓存有 9.2.1，用其官方 wrapper task 生成 Wrapper；实际下载并启动 8.13 |
-| Android Studio / SDK | 常见位置和检查过的其他候选目录中未找到 |
-| ANDROID_HOME / ANDROID_SDK_ROOT | 未设置，无 local.properties 中的 sdk.dir |
-| adb / sdkmanager / emulator | PATH 中不可用，没有发现可用设备环境 |
-| GitHub CLI | PATH 中不可用；本阶段无需 gh |
+| Java | Oracle JDK 21.0.8，编译目标 Java 17 |
+| Gradle / AGP / Kotlin | 8.13 / 8.11.1 / 2.2.21 |
+| SDK Platform | android-36，revision 2，API 36 |
+| SDK Build Tools | 35.0.0；app/build.gradle.kts 显式固定 |
+| Platform Tools | 37.0.1，adb 可用 |
+| Command-line Tools | 稳定版 23.0，Google 官方下载并校验；安装通过附带的 Android CLI 完成 |
+| Android Emulator | 37.2.12；WHPX 检查返回 installed and usable |
+| AVD | cp1-api36，API 36 AOSP default x86_64，1080×1920，density 420 |
+| 实际启动 | 无窗口启动，1536 MiB RAM、2 CPU cores、SwiftShader；首次开机完成 38.340s |
 
-Gradle 最初在文件系统沙箱内无法加载 `native-platform.dll`。通过正常权限重试后，Wrapper 生成和 Gradle 8.13 启动成功。没有把这项 Windows 执行边界误报为源代码错误。
-
-Wrapper 由 Gradle 9.2.1 官方任务生成，运行 Gradle 8.13。JAR SHA-256 与官方 `gradle-9.2.1-wrapper.jar.sha256` 一致：
-
-```text
-423cb469ccc0ecc31f0e4e1c309976198ccb734cdcbb7029d4bda0f18f57e8d9
-```
-
-Gradle 8.13 分发包校验值（写入 wrapper properties）：
+按用户偏好，下载、安装及本次新增缓存都在 D 盘：
 
 ```text
-20f1b1176237254a6fc204d8434196fa11a4cfb387567519c61556e8710aed78
+D:\code\E-English\.local\downloads       官方命令行工具下载包
+D:\code\E-English\.local\android-sdk     Platform、Build Tools、Platform Tools、模拟器和系统镜像
+D:\code\E-English\.local\gradle          Gradle Wrapper 分发包和依赖缓存
+D:\code\E-English\.local\android-user    Android CLI 与用户目录
+D:\code\E-English\.local\avd             AVD 配置与数据
+D:\code\E-English\.local\temp            本次命令的临时目录
 ```
 
-## 测试与构建
+`local.properties` 设置 `sdk.dir=D:/code/E-English/.local/android-sdk`；上述本机目录和配置均不提交 Git。原 C 盘已有 Gradle 缓存仅复制复用，没有删除或移动原文件。工具仍可能读取系统用户目录下的既有设置；未向 C 盘安装新的 SDK 或系统镜像。
 
-已编写 3 个 JVM 测试：默认英文、显示模式写入后可恢复到新 ViewModel、非法存储值回退英文。已编写 2 个 Android Compose 测试：未导入卡片禁用、三页往返与模式保留。**这些测试尚未执行成功，不标为 PASS。**
+安装方法参考 [Google 官方 SDK 工具说明](https://developer.android.com/tools/sdkmanager)。本机已具备可执行的 SDK 和模拟器环境；本次没有配置或运行 GitHub Actions，结果均来自本机实际执行。
 
-| 检查 | 结果 |
+## 实际命令与结果
+
+Windows 使用等价的 `gradlew.bat` 命令。Gradle 属性包含点时使用引号，避免 PowerShell 拆分参数。
+
+```powershell
+$env:GRADLE_USER_HOME = "$PWD/.local/gradle"
+$env:ANDROID_HOME = "$PWD/.local/android-sdk"
+$env:ANDROID_USER_HOME = "$PWD/.local/android-user"
+$env:ANDROID_AVD_HOME = "$PWD/.local/avd"
+$env:TEMP = "$PWD/.local/temp"
+$env:TMP = $env:TEMP
+
+.\gradlew.bat testDebugUnitTest --no-daemon --console=plain --max-workers=1 '-Pkotlin.compiler.execution.strategy=in-process' '-Dorg.gradle.jvmargs=-Xmx1536m'
+.\gradlew.bat assembleDebug --no-daemon --console=plain --max-workers=1 '-Pkotlin.compiler.execution.strategy=in-process' '-Dorg.gradle.jvmargs=-Xmx1536m'
+.\gradlew.bat assembleDebugAndroidTest --no-daemon --console=plain --max-workers=1 '-Pkotlin.compiler.execution.strategy=in-process' '-Dorg.gradle.jvmargs=-Xmx1536m'
+.\gradlew.bat connectedDebugAndroidTest --no-daemon --console=plain --max-workers=1 '-Pandroid.injected.device.serial=emulator-5570' '-Pkotlin.compiler.execution.strategy=in-process' '-Dorg.gradle.jvmargs=-Xmx1024m'
+```
+
+| 检查 | 真实结果 |
 | --- | --- |
-| 官方 Wrapper 生成 | PASS，BUILD SUCCESSFUL |
-| `gradlew.bat --version` | PASS，Gradle 8.13 / JDK 21.0.8 |
-| `gradlew.bat help --no-daemon --console=plain` | PASS，BUILD SUCCESSFUL in 7s；Gradle Kotlin DSL 与插件可配置，不代表 Android 源代码已编译 |
-| Version Catalog TOML / 4 个 XML 格式解析 | PASS，仅结构检查 |
-| Git 版权资源忽略规则 | PASS，private-data、目标 assets、MP3、ZIP 被忽略 |
-| `gradlew.bat testDebugUnitTest --no-daemon --console=plain` | BLOCKED，退出码 1，1m 31s；SDK 缺失，测试未运行 |
-| `gradlew.bat assembleDebug --no-daemon --console=plain` | BLOCKED，退出码 1，9s；SDK 缺失，未生成 APK |
-| `connectedDebugAndroidTest` | SKIPPED，无 SDK、adb、真机或模拟器环境 |
-| Kotlin/Compose 源代码编译与页面实际启动 | NOT VERIFIED，尚未进入编译阶段 |
+| testDebugUnitTest | PASS，BUILD SUCCESSFUL in 3m 23s；3 tests，0 failures、0 errors、0 skipped |
+| assembleDebug | PASS，BUILD SUCCESSFUL in 1m 12s；真实生成 Debug APK |
+| assembleDebugAndroidTest | PASS，BUILD SUCCESSFUL in 48s；导航测试 APK 可编译 |
+| connectedDebugAndroidTest | PASS，BUILD SUCCESSFUL in 1m 38s；API 36 上 5 tests，0 failures、0 errors、0 skipped |
+| adb install | PASS，返回 Success |
+| am start -W | PASS，Status: ok，LaunchState: COLD；两次启动 1296ms / 1123ms |
+| 页面截图和布局检查 | PASS，实际查看列表、答题、原文三个页面 |
+| APK 签名 | PASS，apksigner verify；v2 signature verified |
+| APK 元数据 | minSdk 26、targetSdk 36、compileSdk 36；四种 ABI；无 INTERNET 权限 |
 
-实际错误：
+最初一次补充测试命令因 PowerShell 将未加引号的 Gradle 属性拆分，返回 `Task '.compiler.execution.strategy=in-process' not found`。已修正引号后重新执行成功；失败日志保留在本机 `artifacts/checkpoint-1-validation/testDebugUnitTest-attempt1.log`。本次没有发现需要修改业务源码的编译或测试失败。
 
-```text
-Could not determine the dependencies of task ':app:testDebugUnitTest'.
-> SDK location not found. Define a valid SDK location with an ANDROID_HOME
-  environment variable or by setting the sdk.dir path in your project's
-  local properties file at 'D:\code\E-English\local.properties'.
+成功执行的完整日志和从 JUnit XML 生成的结果摘要已随报告保存：
 
-Could not determine the dependencies of task ':app:compileDebugJavaWithJavac'.
-> SDK location not found.
-```
+- [JVM 测试日志](evidence/unit-tests.log)
+- [Debug APK 构建日志](evidence/assemble-debug.log)
+- [模拟器测试日志](evidence/connected-tests.log)
+- [结果与源码 SHA、APK SHA-256](evidence/results.json)
 
-完整本机日志（不提交，避免绝对路径及环境噪声进入源码仓库）：
+安装、AVD 创建、启动、失败尝试及测试 APK 构建的完整本机日志在 `artifacts/checkpoint-1-validation/`；Gradle 的 JUnit XML 和 HTML 报告仍位于 `app/build/`。
 
-- `artifacts/checkpoint-1/wrapper-bootstrap.log`
-- `artifacts/checkpoint-1/gradle-version.log`
-- `artifacts/checkpoint-1/testDebugUnitTest.log` 与 `.exitcode`
-- `artifacts/checkpoint-1/assembleDebug.log` 与 `.exitcode`
-- `artifacts/checkpoint-1/gradle-help.log`
+## 测试有效性
 
-## 下一步条件
+JVM 共 3 项：默认英文、非法保存模式回退、从独立 SavedStateHandle 快照恢复显示模式。旧测试仅把同一个 Handle 传给新 ViewModel，本次改为重建独立 Handle，并确认原 ViewModel 后续修改不会改变已恢复的状态。
 
-先提供或安装 Android SDK Platform 36、Build Tools 35.0.0、Platform Tools，并设置 sdk.dir 或 ANDROID_HOME。重新执行本阶段 JVM 测试和 APK 构建，修复任何实际编译/测试错误；具备设备后运行 Compose 导航测试和启动验收。通过后汇报并再次等待用户确认，才能进入 Checkpoint 2。
+API 36 模拟器实际运行以下 5 项，没有用静态检查或 JVM 测试替代导航测试：
 
-题库导入、数据转换、评分、Room 实际保存、播放器共享和重启恢复均未开始。
+1. 未导入时只有目标 Part 卡片，开始练习禁用。
+2. 三个页面通过按钮往返，原文模式保持，未选择的模式确实未选中。
+3. 系统返回键按原文→答题→列表返回。
+4. ActivityScenario.recreate 后恢复原文目的地和中文模式，返回答题再进入仍保留模式。
+5. 答题页与原文页的播放禁用，提交禁用，显示资源待导入状态。
+
+导航到可滚动容器里的按钮前先滚动到目标，避免仅在恰好可见的屏幕尺寸下有效。Activity 重建测试验证 SavedStateHandle 与 Navigation 的实际生命周期接入；它不等于操作系统杀死进程后的恢复测试。
+
+## Debug APK 与页面证据
+
+- 构建文件：`app/build/outputs/apk/debug/app-debug.apk`。
+- 本次验收副本：`artifacts/checkpoint-1-validation/listening-practice-checkpoint1-debug.apk`。
+- 包名：`com.eenglish.listening`，版本 `0.1.0-checkpoint1`，13,870,211 字节（约 13.2 MiB）。
+- SHA-256：`d4da2810ff95e260c72bdcfb91ddccad577fe80a5426469a679a9d8f5900f04d`。
+- APK 没有版权题库资源；源码仓库仅保存报告与截图，本机 SDK、下载包及 APK 副本均被 Git 忽略。
+
+真实模拟器截图：[试题列表](screenshots/list.png)、[答题占位页](screenshots/practice.png)、[原文占位页](screenshots/transcript.png)。截图均在页面内容出现后读取布局并捕获，不是启动闪屏。
+
+## 警告与仍未验证的项目
+
+非阻塞警告：SDK XML v4 对 AGP 的 SDK 读取工具较新；Debug APK 的 `libandroidx.graphics.path.so` 未剥离符号。完整日志保留警告，实际编译、安装启动和测试均通过。
+
+尚未验证：API 26 上的实际运行、物理真机、其他屏幕尺寸和大字体、操作系统杀进程后的状态恢复、GitHub CI。
+
+尚未实现：题库转换、真实题目、评分、幂等提交、Room 练习记录、播放器和共享播放状态、重启恢复答案、实际飞行模式练习。这些属于后续检查点，不纳入本阶段通过声明。
+
+等待用户正式验收 Checkpoint 1；未经确认不进入 Checkpoint 2。

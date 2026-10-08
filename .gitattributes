@@ -5,6 +5,11 @@
 *.xml text eol=lf
 *.properties text eol=lf
 *.md text eol=lf
+*.json text eol=lf
+*.log text eol=lf
+# Preserve whitespace emitted by Gradle in verification evidence.
+docs/checkpoints/evidence/*.log whitespace=-blank-at-eol
+*.png binary
 .gitattributes text eol=lf
 .gitignore text eol=lf
 gradlew text eol=lf

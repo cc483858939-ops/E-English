@@ -1,0 +1,66 @@
+{
+  "date": "2026-10-08",
+  "sourceCommit": "881279686337242fc5d300c661ed3b115c5d6671",
+  "sourceValidation": "Tests ran on the unchanged working-tree source immediately before this commit; later changes are documentation and evidence only.",
+  "unit": {
+    "tests": 3,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "name": "unknownStoredModeFallsBackToEnglish",
+        "result": "PASSED"
+      },
+      {
+        "name": "defaultsToEnglish",
+        "result": "PASSED"
+      },
+      {
+        "name": "selectedModeCanBeRestoredFromIndependentSavedState",
+        "result": "PASSED"
+      }
+    ]
+  },
+  "navigation": {
+    "tests": 5,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "cases": [
+      {
+        "name": "systemBackReturnsThroughTheNavigationStack",
+        "result": "PASSED"
+      },
+      {
+        "name": "unimportedPartCannotBePracticed",
+        "result": "PASSED"
+      },
+      {
+        "name": "unavailableAudioAndSubmissionStayDisabledOnBothPages",
+        "result": "PASSED"
+      },
+      {
+        "name": "threePagesNavigateAndReturnWithModePreserved",
+        "result": "PASSED"
+      },
+      {
+        "name": "activityRecreationRestoresDestinationAndTranscriptMode",
+        "result": "PASSED"
+      }
+    ]
+  },
+  "emulator": {
+    "avd": "cp1-api36",
+    "api": 36,
+    "abi": "x86_64",
+    "display": "1080x1920",
+    "density": 420,
+    "accelerator": "WHPX"
+  },
+  "apk": {
+    "name": "listening-practice-checkpoint1-debug.apk",
+    "bytes": 13870211,
+    "sha256": "d4da2810ff95e260c72bdcfb91ddccad577fe80a5426469a679a9d8f5900f04d"
+  }
+}
