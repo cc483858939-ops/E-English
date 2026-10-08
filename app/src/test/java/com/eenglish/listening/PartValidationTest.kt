@@ -31,7 +31,7 @@ class PartValidationTest {
         }
     }
     @Test fun actualImportedPrivateAssetsAreConsistent() {
-        val assets = File(System.getProperty("listening.assets"))
+        val assets = File(requireNotNull(System.getProperty("listening.assets")))
         val file = File(assets, "listening/cambridge-9-test-1-part-3/part.json")
         assumeTrue("Private sample absent; run tools/import_sample.py", file.isFile)
         val part = PartCodec.decode(file.readText())

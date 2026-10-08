@@ -25,6 +25,9 @@ try {
         $arguments += "-Pandroid.injected.device.serial=$Device"
     }
     New-Item -ItemType Directory -Force (Split-Path $Log -Parent) | Out-Null
-    & "$project/gradlew.bat" @Tasks @arguments 2>&1 | Tee-Object $Log
+    # Windows PowerShell 5 wraps native stderr warnings as ErrorRecords.
+    # Preserve the Gradle exit code; SDK warnings must not abort verification.
+    $ErrorActionPreference = 'Continue'
+    & "$project/gradlew.bat" @Tasks @arguments 2>&1 | ForEach-Object { $_.ToString() } | Tee-Object $Log
     exit $LASTEXITCODE
 } finally { Pop-Location }

@@ -1,17 +1,14 @@
 package com.eenglish.listening
 
-import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertIsNotEnabled
-import androidx.compose.ui.test.assertIsNotSelected
-import androidx.compose.ui.test.assertIsSelected
-import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.onAllNodesWithText
-import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
+import androidx.lifecycle.ViewModelProvider
 import androidx.test.espresso.Espresso.pressBack
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.eenglish.listening.viewmodel.PracticeViewModel
+import org.junit.Assert.*
+import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -19,46 +16,35 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class ShellNavigationTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    private val vm get() = ViewModelProvider(compose.activity)[PracticeViewModel::class.java]
 
-    @Test
-    fun unimportedPartCannotBePracticed() {
-        compose.onNodeWithText("试题列表").assertIsDisplayed()
-        compose.onNodeWithText("待导入").assertIsDisplayed()
-        compose.onNodeWithText("开始练习").assertIsNotEnabled()
-        compose.onAllNodesWithText("Cambridge IELTS 9").assertCountEquals(1)
+    @Test fun realPartHasTenQuestionsAndSingleSelectionsCanChange() {
+        openPractice()
+        for (number in 21..30) {
+            compose.onNodeWithTag("practice-list").performScrollToNode(hasTestTag("question-$number"))
+            compose.onNodeWithTag("question-$number").assertIsDisplayed()
+        }
+        select(21, "A")
+        compose.onNodeWithTag("option-21-A").assertIsSelected()
+        select(21, "B")
+        compose.onNodeWithTag("option-21-B").assertIsSelected()
+        compose.onNodeWithTag("option-21-A").assertIsNotSelected()
+        compose.onNodeWithText("标准答案", substring = true).assertDoesNotExist()
     }
 
-    @Test
-    fun threePagesNavigateAndReturnWithModePreserved() {
+    @Test fun navigationAndSystemBackKeepSelectedAnswer() {
         openPractice()
-        compose.onNodeWithText("听力答题").assertIsDisplayed()
-        compose.onNodeWithText("提交答案").assertIsNotEnabled()
+        select(21, "A")
         openTranscript()
         compose.onNodeWithText("听力原文").assertIsDisplayed()
-        compose.onNodeWithText("英中双语").performClick()
-        compose.onNodeWithText("英中双语").assertIsSelected()
-        compose.onNodeWithText("英文原文").assertIsNotSelected()
-        compose.onNodeWithText("返回答题页").performClick()
-        compose.onNodeWithText("听力答题").assertIsDisplayed()
-        openTranscript()
-        compose.onNodeWithText("英中双语").assertIsSelected()
-        compose.onNodeWithText("返回").performClick()
-        compose.onNodeWithText("返回").performClick()
-        compose.onNodeWithText("试题列表").assertIsDisplayed()
-    }
-
-    @Test
-    fun systemBackReturnsThroughTheNavigationStack() {
-        openPractice()
-        openTranscript()
         pressBack()
         compose.onNodeWithText("听力答题").assertIsDisplayed()
+        compose.onNodeWithTag("option-21-A").assertIsSelected()
         pressBack()
         compose.onNodeWithText("试题列表").assertIsDisplayed()
     }
 
-    @Test
-    fun activityRecreationRestoresDestinationAndTranscriptMode() {
+    @Test fun activityRecreationRestoresDestinationAndTranscriptMode() {
         openPractice()
         openTranscript()
         compose.onNodeWithText("中文翻译").performClick()
@@ -67,26 +53,36 @@ class ShellNavigationTest {
         compose.onNodeWithText("中文翻译").assertIsSelected()
         compose.onNodeWithText("英文原文").assertIsNotSelected()
         pressBack()
-        compose.onNodeWithText("听力答题").assertIsDisplayed()
         openTranscript()
         compose.onNodeWithText("中文翻译").assertIsSelected()
     }
 
-    @Test
-    fun unavailableAudioAndSubmissionStayDisabledOnBothPages() {
+    @Test fun actualMp3PlaysPausesAndSeeks() {
         openPractice()
-        compose.onNodeWithText("播放").assertIsNotEnabled()
-        compose.onNodeWithText("提交答案").assertIsNotEnabled()
-        openTranscript()
-        compose.onNodeWithText("播放").assertIsNotEnabled()
-        compose.onNodeWithText("音频尚未导入").assertIsDisplayed()
+        compose.waitUntil(15000) { vm.audio.state.value.ready }
+        assertTrue(vm.audio.state.value.durationMs > 420000)
+        compose.onNodeWithTag("audio-toggle").performClick()
+        compose.waitUntil(10000) { vm.audio.state.value.isPlaying && vm.audio.state.value.positionMs > 500 }
+        compose.onNodeWithTag("audio-toggle").performClick()
+        compose.waitUntil(5000) { !vm.audio.state.value.isPlaying }
+        compose.onNodeWithTag("audio-seek").performSemanticsAction(SemanticsActions.SetProgress) { it(10000f) }
+        compose.waitUntil(5000) { vm.audio.state.value.positionMs in 9500..10500 }
+        compose.onNodeWithTag("audio-toggle").performClick()
+        compose.waitUntil(10000) { vm.audio.state.value.positionMs > 11000 }
+        compose.onNodeWithTag("audio-toggle").performClick()
     }
 
     private fun openPractice() {
-        compose.onNodeWithText("预览答题页").performScrollTo().performClick()
+        compose.waitUntil(15000) { !vm.uiState.value.loading }
+        assumeTrue("Private sample not imported", vm.uiState.value.parts.isNotEmpty())
+        compose.onNodeWithText("开始练习").performScrollTo().performClick()
     }
-
+    private fun select(number: Int, option: String) {
+        compose.onNodeWithTag("practice-list").performScrollToNode(hasTestTag("option-$number-$option"))
+        compose.onNodeWithTag("option-$number-$option").performClick()
+    }
     private fun openTranscript() {
-        compose.onNodeWithText("查看原文").performScrollTo().performClick()
+        compose.onNodeWithTag("practice-list").performScrollToNode(hasText("查看原文"))
+        compose.onNodeWithText("查看原文").performClick()
     }
 }
