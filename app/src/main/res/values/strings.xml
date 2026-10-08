@@ -1,0 +1,28 @@
+<resources>
+    <string name="app_name">Listening Practice</string>
+    <string name="list_title">试题列表</string>
+    <string name="list_subtitle">剑桥雅思 · 离线听力练习</string>
+    <string name="book_title">Cambridge IELTS 9</string>
+    <string name="part_label">Test 1 · Part 3</string>
+    <string name="question_count">10 Questions · 21–30</string>
+    <string name="not_imported">待导入</string>
+    <string name="start_practice">开始练习</string>
+    <string name="import_pending">题库尚未导入，暂不可练习。</string>
+    <string name="preview_practice">预览答题页</string>
+    <string name="practice_title">听力答题</string>
+    <string name="practice_pending">题目尚未导入</string>
+    <string name="practice_pending_detail">真实题目和选项将在资源校验后显示。</string>
+    <string name="view_transcript">查看原文</string>
+    <string name="submit_answers">提交答案</string>
+    <string name="transcript_title">听力原文</string>
+    <string name="transcript_english">英文原文</string>
+    <string name="transcript_chinese">中文翻译</string>
+    <string name="transcript_bilingual">英中双语</string>
+    <string name="transcript_pending">原文尚未导入</string>
+    <string name="transcript_pending_detail">完成题库资源校验后，可在这里阅读对应内容。</string>
+    <string name="audio_pending">音频尚未导入</string>
+    <string name="play_audio">播放</string>
+    <string name="empty_time">0:00 / --:--</string>
+    <string name="back">返回</string>
+    <string name="back_to_practice">返回答题页</string>
+</resources>

@@ -1,0 +1,17 @@
+.gradle/
+.kotlin/
+.idea/
+.bootstrap/
+**/build/
+local.properties
+*.iml
+*.jks
+*.keystore
+captures/
+artifacts/
+# Copyrighted source and generated exam resources stay local.
+private-data/
+sample-data/
+app/src/main/assets/listening/
+*.mp3
+*.zip
