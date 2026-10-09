@@ -11,6 +11,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.compose.ui.geometry.Offset
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.media3.exoplayer.ExoPlayer
 import com.eenglish.listening.viewmodel.PracticeViewModel
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
@@ -108,13 +109,18 @@ class ShellNavigationTest {
         val session=vm.uiState.value.attempt!!.session.id
         val controller=vm.audio
         repeat(2) { cycle ->
+            compose.waitUntil(15000) { controller.state.value.ready }
+            compose.onNodeWithTag("audio-toggle").performClick()
+            compose.waitUntil(10000) { controller.state.value.isPlaying }
             openTranscript()
             edge(cycle == 0)
             compose.onNodeWithText("听力答题").assertIsDisplayed()
+            assertNativePlayback(true)
             assertSame(controller,vm.audio)
             assertEquals(session,vm.uiState.value.attempt!!.session.id)
             edge(cycle != 0)
             compose.onNodeWithText("继续练习").assertIsDisplayed()
+            assertPausedPosition()
             edge(cycle == 0)
             compose.onNodeWithTag("test-9-1").assertIsDisplayed()
             edge(cycle != 0)
@@ -124,9 +130,115 @@ class ShellNavigationTest {
             edge(cycle != 0)
             compose.onNodeWithTag("cancel-exit").assertDoesNotExist()
             openPractice()
+            assertNativePlayback(false)
             compose.onNodeWithTag("practice-list").performScrollToNode(hasTestTag("option-21-A"))
             compose.onNodeWithTag("option-21-A").assertIsSelected()
         }
+    }
+
+    @Test fun leavingListeningRegionPausesAndReopeningRetainsPositionSpeedAndAnswer() {
+        openPractice(); select(21, "A")
+        compose.waitUntil(15000) { vm.audio.state.value.ready }
+        chooseAudioSpeed(1.5f)
+        compose.runOnIdle { vm.audio.seekTo(198000) }
+        compose.waitUntil(5000) { vm.audio.state.value.ready }
+        val controller = vm.audio
+        val session = vm.uiState.value.attempt!!.session.id
+        val answers = vm.uiState.value.answers.toMap()
+        compose.onNodeWithTag("audio-toggle").performClick()
+        compose.waitUntil(10000) { controller.state.value.isPlaying && controller.state.value.positionMs > 198000 }
+        repeat(2) { cycle ->
+            val position = controller.state.value.positionMs
+            openTranscript()
+            assertNativePlayback(true)
+            if (cycle == 0) compose.onNodeWithText(compose.activity.getString(R.string.back_to_practice)).performClick() else pressBack()
+            compose.onNodeWithText("听力答题").assertIsDisplayed()
+            assertNativePlayback(true)
+            assertTrue(controller.state.value.positionMs >= position)
+        }
+        // Toolbar Back and traditional system Back must both pause the native player.
+        compose.onNodeWithText("返回").performClick()
+        compose.onNodeWithText("试题列表").assertIsDisplayed()
+        val position = assertPausedPosition()
+        repeat(2) {
+            openPractice()
+            assertSame(controller, vm.audio)
+            assertNativePlayback(false)
+            assertEquals(position, controller.state.value.positionMs)
+            assertEquals(1.5f, controller.state.value.speed, 0f)
+            assertEquals(session, vm.uiState.value.attempt!!.session.id)
+            assertEquals(answers, vm.uiState.value.answers)
+            compose.onNodeWithTag("practice-list").performScrollToNode(hasTestTag("option-21-A"))
+            compose.onNodeWithTag("option-21-A").assertIsSelected()
+            if (it == 1) {
+                compose.onNodeWithTag("audio-toggle").performClick()
+                compose.waitUntil(10000) { controller.state.value.isPlaying && controller.state.value.positionMs > position }
+                assertNativePlayback(true)
+            }
+            pressBack()
+            compose.onNodeWithText("试题列表").assertIsDisplayed()
+            assertPausedPosition()
+        }
+    }
+
+    /** Inspect ExoPlayer only in tests, on its application thread; no production test hooks. */
+    private fun nativePlayer(): ExoPlayer = vm.audio.javaClass.getDeclaredField("player").let {
+        it.isAccessible = true
+        it.get(vm.audio) as ExoPlayer
+    }
+
+    private fun assertNativePlayback(playing: Boolean) {
+        compose.runOnUiThread {
+            val player = nativePlayer()
+            assertEquals(playing, player.isPlaying)
+            assertEquals(playing, player.playWhenReady)
+            assertEquals(player.isPlaying, vm.audio.state.value.isPlaying)
+            assertEquals(player.playbackParameters.speed, vm.audio.state.value.speed, 0f)
+        }
+    }
+
+    private fun assertPausedPosition(): Long {
+        assertNativePlayback(false)
+        var position = 0L
+        compose.runOnUiThread { position = nativePlayer().currentPosition }
+        android.os.SystemClock.sleep(750) // More than two polling intervals, never on the UI thread.
+        assertNativePlayback(false)
+        compose.runOnUiThread {
+            assertEquals("Paused media time must not advance", position, nativePlayer().currentPosition)
+            assertEquals(position, vm.audio.state.value.positionMs)
+        }
+        return position
+    }
+
+    @Test fun openingAnotherPartLoadsAtZeroPausedAndKeepsSpeedAndOldAnswers() {
+        openPractice(); select(21, "B")
+        compose.waitUntil(15000) { vm.audio.state.value.ready }
+        chooseAudioSpeed(1.5f)
+        compose.runOnIdle { vm.audio.seekTo(60000) }
+        compose.waitUntil(5000) { vm.audio.state.value.ready }
+        val controller = vm.audio
+        val saved = vm.uiState.value.attempt!!
+        val app = compose.activity.application as TestListeningApplication
+        val assets = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().context.assets
+        assumeTrue("Private representative pack unavailable", assets.list("private-library")?.contains("cambridge-5.eelpack") == true)
+        runBlocking(Dispatchers.IO) {
+            assets.open("private-library/cambridge-5.eelpack").use { app.parts.importPack(it) }
+            app.parts.loadParts()
+        }
+        compose.onNodeWithTag("audio-toggle").performClick()
+        compose.waitUntil(10000) { controller.state.value.isPlaying }
+        compose.runOnUiThread { vm.openPart("cambridge-5-test-1-part-1") }
+        compose.waitUntil(15000) { !vm.uiState.value.loading && !vm.uiState.value.saving && controller.state.value.ready }
+        assertEquals("cambridge-5-test-1-part-1", vm.uiState.value.part!!.id)
+        assertSame(controller, vm.audio)
+        assertEquals(0L, assertPausedPosition())
+        assertEquals(1.5f, controller.state.value.speed, 0f)
+        assertNotEquals(saved.session.id, vm.uiState.value.attempt!!.session.id)
+        assertEquals(saved, runBlocking(Dispatchers.IO) { app.practices.all().single { it.session.id == saved.session.id } })
+        compose.onNodeWithTag("audio-toggle").performClick()
+        compose.waitUntil(10000) { controller.state.value.isPlaying && controller.state.value.positionMs > 500 }
+        pressBack()
+        assertPausedPosition()
     }
 
     @Test fun actualMp3PlaysPausesAndSeeks() {
@@ -241,8 +353,11 @@ class ShellNavigationTest {
         val alternate = java.io.File.createTempFile("audio-speed-test", ".mp3", compose.activity.cacheDir)
         try {
             compose.activity.assets.open(part.audioPath).use { input -> alternate.outputStream().use { input.copyTo(it) } }
+            compose.onNodeWithTag("audio-toggle").performClick()
+            compose.waitUntil(10000) { controller.state.value.isPlaying }
             compose.runOnIdle { controller.load(alternate.toURI().toString()) }
             compose.waitUntil(15000) { controller.state.value.ready }
+            assertNativePlayback(false)
             assertEquals(2f, controller.state.value.speed, 0f)
             assertEquals(0L, controller.state.value.positionMs)
             assertSame(controller, vm.audio)
@@ -370,11 +485,44 @@ class ShellNavigationTest {
         val controller = vm.audio
         compose.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
         compose.waitUntil(5000) { !controller.state.value.isPlaying }
+        assertPausedPosition()
         compose.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
-        assertFalse(controller.state.value.isPlaying)
+        assertNativePlayback(false)
         compose.onNodeWithTag("audio-toggle").performClick()
         compose.waitUntil(10000) { controller.state.value.isPlaying }
         compose.onNodeWithTag("audio-toggle").performClick()
+    }
+
+    @Test fun actualHomeAndRecentsPauseWithoutAutomaticForegroundResume() {
+        openPractice()
+        compose.waitUntil(15000) { vm.audio.state.value.ready }
+        chooseAudioSpeed(1.5f)
+        compose.runOnIdle { vm.audio.seekTo(60000) }
+        compose.waitUntil(5000) { vm.audio.state.value.ready }
+        val activity = compose.activity
+        val controller = vm.audio
+        val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+        fun key(code: Int) {
+            instrumentation.uiAutomation.executeShellCommand("input keyevent $code").use {
+                android.os.ParcelFileDescriptor.AutoCloseInputStream(it).use { stream -> stream.readBytes() }
+            }
+        }
+        for (recents in listOf(false, true)) {
+            compose.onNodeWithTag("audio-toggle").performClick()
+            compose.waitUntil(10000) { controller.state.value.isPlaying }
+            if (recents) key(187)
+            key(3)
+            compose.waitUntil(10000) { !controller.state.value.isPlaying && !activity.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) }
+            val position = assertPausedPosition()
+            instrumentation.targetContext.startActivity(android.content.Intent(activity, MainActivity::class.java)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+            compose.waitUntil(10000) { activity.lifecycle.currentState == Lifecycle.State.RESUMED }
+            compose.onNodeWithText("听力答题").assertIsDisplayed()
+            assertSame(controller, vm.audio)
+            assertPausedPosition()
+            assertEquals(position, controller.state.value.positionMs)
+            assertEquals(1.5f, controller.state.value.speed, 0f)
+        }
     }
 
     @Test fun missingAnswerConfirmationAndRepeatedSubmitKeepOneImmutableRecord() {

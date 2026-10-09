@@ -46,6 +46,8 @@ class ListeningAudioController(context: Context, scope: CoroutineScope) {
 
     fun load(audioPath: String) {
         if (path == audioPath && mutableState.value.error == null) return
+        // Replacing a source must not inherit the previous source's playWhenReady.
+        player.pause()
         path = audioPath
         mutableState.value = AudioState(speed = player.playbackParameters.speed)
         player.setMediaItem(MediaItem.fromUri(if (audioPath.startsWith("file:")) audioPath else "asset:///$audioPath"))

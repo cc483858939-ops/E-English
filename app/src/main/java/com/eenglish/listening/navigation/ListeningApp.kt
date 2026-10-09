@@ -1,6 +1,7 @@
 package com.eenglish.listening.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.material3.AlertDialog
@@ -40,9 +41,21 @@ fun ListeningApp(shellViewModel: ShellViewModel = viewModel(), practiceViewModel
     val entry by navController.currentBackStackEntryAsState()
     val currentRoute = entry?.destination?.route
     val activity = LocalContext.current as? Activity
+    LaunchedEffect(currentRoute) {
+        // The Activity remains started when navigation returns to the library.
+        if (currentRoute == AppDestination.LIST.route) practiceViewModel.audio.pause()
+    }
     val navigateUp: () -> Unit = {
-        if (practiceViewModel.uiState.value.batchImport?.isRunning != true && !navController.popBackStack()) {
-            navController.navigate(AppDestination.LIST.route) { launchSingleTop = true }
+        if (practiceViewModel.uiState.value.batchImport?.isRunning != true) {
+            val targetRoute = navController.previousBackStackEntry?.destination?.route
+            // Pause before popping; both toolbar and system Back use this path.
+            // Practice and transcript share one playback region.
+            if (targetRoute != AppDestination.PRACTICE.route && targetRoute != AppDestination.TRANSCRIPT.route) {
+                practiceViewModel.audio.pause()
+            }
+            if (!navController.popBackStack()) {
+                navController.navigate(AppDestination.LIST.route) { launchSingleTop = true }
+            }
         }
     }
     val state by shellViewModel.uiState.collectAsStateWithLifecycle()
@@ -68,7 +81,10 @@ fun ListeningApp(shellViewModel: ShellViewModel = viewModel(), practiceViewModel
     NavHost(navController = navController, startDestination = AppDestination.LIST.route) {
         composable(AppDestination.LIST.route) {
             PartListScreen(practice, onImport = { importLauncher.launch(arrayOf("*/*")) },
-                backEnabled = currentRoute == AppDestination.LIST.route, onExit = { activity?.finish() }, onOpen = { id ->
+                backEnabled = currentRoute == AppDestination.LIST.route, onExit = {
+                    practiceViewModel.audio.pause()
+                    activity?.finish()
+                }, onOpen = { id ->
                 practiceViewModel.openPart(id)
                 navController.navigate(AppDestination.PRACTICE.route) { launchSingleTop = true }
             })
