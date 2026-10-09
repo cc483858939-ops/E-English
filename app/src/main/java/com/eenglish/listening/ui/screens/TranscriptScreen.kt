@@ -24,7 +24,7 @@ import com.eenglish.listening.viewmodel.TranscriptMode
 @Composable
 fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Unit, onSeek: (Long) -> Unit,
     mode: TranscriptMode, onModeChange: (TranscriptMode) -> Unit, onBack: () -> Unit,
-    onSelect: (String, String) -> Unit) {
+    onSelect: (String, String) -> Unit, onSeekBy: (Long) -> Unit = {}, onSpeed: (Float) -> Unit = {}) {
     if (state.loading) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         return
@@ -90,7 +90,7 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
     }, contentWindowInsets = WindowInsets.safeDrawing) { insets ->
         Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
             Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).testTag("transcript-player")) {
-                AudioControls(audio, onToggle, onSeek, compact = true)
+                AudioControls(audio, onToggle, onSeek, compact = true, onSeekBy = onSeekBy, onSpeed = onSpeed)
             }
             state.error?.let {
                 Text(it, Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.error)

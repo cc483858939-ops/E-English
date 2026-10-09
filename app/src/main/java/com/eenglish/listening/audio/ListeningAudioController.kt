@@ -5,6 +5,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import kotlinx.coroutines.CoroutineScope
@@ -19,6 +20,7 @@ data class AudioState(
     val durationMs: Long = 0,
     val ready: Boolean = false,
     val error: String? = null,
+    val speed: Float = 1f,
 )
 
 /** One owner per Activity ViewModel. All calls and polling run on the main thread. */
@@ -45,11 +47,12 @@ class ListeningAudioController(context: Context, scope: CoroutineScope) {
     fun load(audioPath: String) {
         if (path == audioPath && mutableState.value.error == null) return
         path = audioPath
-        mutableState.value = AudioState()
+        mutableState.value = AudioState(speed = player.playbackParameters.speed)
         player.setMediaItem(MediaItem.fromUri(if (audioPath.startsWith("file:")) audioPath else "asset:///$audioPath"))
         player.prepare()
     }
     fun toggle() {
+        if (!mutableState.value.ready || mutableState.value.error != null) return
         if (player.isPlaying) player.pause() else {
             if (player.playbackState == Player.STATE_ENDED) player.seekTo(0)
             player.play()
@@ -57,7 +60,17 @@ class ListeningAudioController(context: Context, scope: CoroutineScope) {
         update()
     }
     fun seekTo(positionMs: Long) {
+        if (!mutableState.value.ready || mutableState.value.error != null) return
         player.seekTo(positionMs.coerceIn(0, mutableState.value.durationMs.coerceAtLeast(0)))
+        update()
+    }
+    fun seekBy(deltaMs: Long) {
+        // Use ExoPlayer's current position, not the last 250ms UI snapshot.
+        seekTo(seekTarget(player.currentPosition, deltaMs, mutableState.value.durationMs))
+    }
+    fun setSpeed(speed: Float) {
+        require(speed in playbackSpeeds) { "Unsupported playback speed" }
+        player.playbackParameters = PlaybackParameters(speed, 1f)
         update()
     }
     fun pause() { player.pause(); update() }
@@ -67,6 +80,7 @@ class ListeningAudioController(context: Context, scope: CoroutineScope) {
             positionMs = player.currentPosition.coerceAtLeast(0),
             durationMs = player.duration.takeIf { it != C.TIME_UNSET }?.coerceAtLeast(0) ?: 0,
             ready = player.playbackState == Player.STATE_READY || player.playbackState == Player.STATE_ENDED,
+            speed = player.playbackParameters.speed,
         )
     }
     fun release() { polling.cancel(); player.removeListener(listener); player.release() }

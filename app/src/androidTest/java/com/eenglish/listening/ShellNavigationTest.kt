@@ -144,6 +144,121 @@ class ShellNavigationTest {
         compose.onNodeWithTag("audio-toggle").performClick()
     }
 
+    @Test fun fiveSecondJumpsAndSpeedMenuUseActualMp3WithoutRestarting() {
+        openPractice()
+        compose.waitUntil(15000) { vm.audio.state.value.ready }
+        assertEquals(1f, vm.audio.state.value.speed, 0f)
+        com.eenglish.listening.audio.playbackSpeeds.forEach { speed ->
+            compose.runOnIdle { vm.audio.seekTo(20000) }
+            chooseAudioSpeed(speed)
+            assertTrue(vm.audio.state.value.positionMs in 19990..20010)
+            assertFalse(vm.audio.state.value.isPlaying)
+            repeat(3) { count ->
+                compose.waitUntil(5000) { vm.audio.state.value.ready }
+                compose.onNodeWithTag("audio-back-5").performClick()
+                compose.waitUntil(5000) { vm.audio.state.value.ready }
+                assertEquals(20000L - (count + 1) * 5000L, vm.audio.state.value.positionMs)
+                assertFalse(vm.audio.state.value.isPlaying)
+            }
+            compose.onNodeWithTag("audio-back-5").performClick()
+            compose.waitUntil(5000) { vm.audio.state.value.ready }
+            compose.onNodeWithTag("audio-back-5").performClick()
+            assertEquals(0L, vm.audio.state.value.positionMs)
+            compose.onNodeWithTag("audio-toggle").performClick()
+            compose.waitUntil(10000) { vm.audio.state.value.isPlaying && vm.audio.state.value.positionMs > 500 }
+            val livePosition = vm.audio.state.value.positionMs
+            chooseAudioSpeed(if (speed == 1f) 1.25f else 1f)
+            compose.waitUntil(5000) { vm.audio.state.value.isPlaying }
+            assertTrue("Changing speed while playing must not rewind", vm.audio.state.value.positionMs >= livePosition)
+            chooseAudioSpeed(speed)
+            repeat(3) {
+                val before = vm.audio.state.value.positionMs
+                compose.onNodeWithTag("audio-forward-5").performClick()
+                compose.waitUntil(5000) { vm.audio.state.value.isPlaying }
+                assertTrue("Playing seek must advance media time by five seconds",
+                    vm.audio.state.value.positionMs in (before + 5000)..(before + 7000))
+                assertEquals(speed, vm.audio.state.value.speed, 0f)
+            }
+            compose.onNodeWithTag("audio-toggle").performClick()
+            compose.waitUntil(5000) { !vm.audio.state.value.isPlaying }
+            compose.onNodeWithTag("audio-seek").performTouchInput {
+                swipe(Offset(width * .1f, centerY), Offset(width * .6f, centerY), 400)
+            }
+            compose.waitUntil(5000) { vm.audio.state.value.ready }
+            assertTrue(vm.audio.state.value.positionMs > 100000)
+            assertFalse(vm.audio.state.value.isPlaying)
+        }
+        val duration = vm.audio.state.value.durationMs
+        compose.runOnIdle { vm.audio.seekTo(duration - 1000) }
+        compose.waitUntil(5000) { vm.audio.state.value.ready }
+        compose.onNodeWithTag("audio-forward-5").performClick()
+        assertEquals(duration, vm.audio.state.value.positionMs)
+        // Reach a real ended event, then the next Play must restart from the beginning.
+        compose.runOnIdle { vm.audio.seekTo(duration - 500) }
+        compose.waitUntil(5000) { vm.audio.state.value.ready }
+        compose.onNodeWithTag("audio-toggle").performClick()
+        compose.waitUntil(10000) { !vm.audio.state.value.isPlaying && vm.audio.state.value.positionMs >= duration - 100 }
+        compose.onNodeWithTag("audio-toggle").performClick()
+        compose.waitUntil(10000) { vm.audio.state.value.isPlaying && vm.audio.state.value.positionMs in 100..5000 }
+        compose.onNodeWithTag("audio-toggle").performClick()
+    }
+
+    @Test fun speedPositionAndAnswersSurviveTranscriptDragAndAnotherMediaLoad() {
+        openPractice(); select(21, "A")
+        compose.waitUntil(15000) { vm.audio.state.value.ready }
+        chooseAudioSpeed(1.5f)
+        compose.runOnIdle { vm.audio.seekTo(150000) }
+        compose.waitUntil(5000) { vm.audio.state.value.ready }
+        val controller = vm.audio
+        val answers = vm.uiState.value.answers.toMap()
+        val session = vm.uiState.value.attempt!!.session.id
+        openTranscript()
+        assertEquals(1.5f, controller.state.value.speed, 0f)
+        assertEquals(150000L, controller.state.value.positionMs)
+        compose.onNodeWithContentDescription("播放速度1.5倍").assertIsDisplayed()
+        val playerBounds = compose.onNodeWithTag("transcript-player").fetchSemanticsNode().boundsInRoot
+        val available = availableHeight()
+        repeat(2) {
+            compose.onNodeWithTag("transcript-drag-handle").performTouchInput {
+                swipe(center, center + Offset(0f, -available * .12f), 300)
+            }
+            compose.onNodeWithTag("transcript-drag-handle").performTouchInput {
+                swipe(center, center + Offset(0f, available * .12f), 300)
+            }
+            assertEquals(playerBounds, compose.onNodeWithTag("transcript-player").fetchSemanticsNode().boundsInRoot)
+            assertEquals(150000L, controller.state.value.positionMs)
+        }
+        chooseAudioSpeed(2f)
+        compose.onNodeWithTag("audio-forward-5").performClick()
+        compose.waitUntil(5000) { controller.state.value.ready }
+        pressBack()
+        compose.onNodeWithContentDescription("播放速度2.0倍").assertIsDisplayed()
+        assertSame(controller, vm.audio)
+        assertEquals(155000L, controller.state.value.positionMs)
+        assertEquals(session, vm.uiState.value.attempt!!.session.id)
+        assertEquals(answers, vm.uiState.value.answers)
+        val part = requireNotNull(vm.uiState.value.part)
+        val alternate = java.io.File.createTempFile("audio-speed-test", ".mp3", compose.activity.cacheDir)
+        try {
+            compose.activity.assets.open(part.audioPath).use { input -> alternate.outputStream().use { input.copyTo(it) } }
+            compose.runOnIdle { controller.load(alternate.toURI().toString()) }
+            compose.waitUntil(15000) { controller.state.value.ready }
+            assertEquals(2f, controller.state.value.speed, 0f)
+            assertEquals(0L, controller.state.value.positionMs)
+            assertSame(controller, vm.audio)
+            assertEquals(answers, vm.uiState.value.answers)
+        } finally {
+            compose.runOnIdle { controller.load(part.audioPath) }
+            alternate.delete()
+        }
+    }
+
+    private fun chooseAudioSpeed(speed: Float) {
+        compose.onNodeWithTag("audio-speed").performClick()
+        compose.onNodeWithTag("audio-speed-${com.eenglish.listening.ui.components.formatSpeed(speed)}").performClick()
+        compose.waitUntil(5000) { vm.audio.state.value.speed == speed }
+    }
+
     @Test fun fixedPlayerAndSubmitRemainUsableAtQuestionThirty() {
         openPractice()
         select(21, "A")
@@ -207,8 +322,10 @@ class ShellNavigationTest {
         val toggle = compose.onNodeWithTag("audio-toggle").fetchSemanticsNode().boundsInRoot
         val time = compose.onNodeWithTag("audio-time").fetchSemanticsNode().boundsInRoot
         val seek = compose.onNodeWithTag("audio-seek").fetchSemanticsNode().boundsInRoot
-        assertTrue("Play button overlaps time: $toggle / $time", toggle.right <= time.left)
+        assertTrue("Control row overlaps progress row: $toggle / $seek", toggle.bottom <= seek.top)
         assertTrue("Time overlaps seek touch area: $time / $seek", time.right <= seek.left)
+        val duration = compose.onNodeWithTag("audio-duration").fetchSemanticsNode().boundsInRoot
+        assertTrue("Seek overlaps total duration: $seek / $duration", seek.right <= duration.left)
         assertTrue("Seek touch area too narrow: $seek", seek.width >= 48 * compose.density.density)
     }
 
@@ -602,6 +719,7 @@ class ShellNavigationTest {
             swipe(Offset(width * 0.1f, centerY), Offset(width * 0.4f, centerY), 400)
         }
         compose.waitUntil(5000) { controller.state.value.positionMs > 90000 }
+        chooseAudioSpeed(1.5f)
         compose.onNodeWithTag("audio-toggle").performClick()
         compose.waitUntil(10000) { controller.state.value.isPlaying }
         var position = controller.state.value.positionMs
@@ -610,6 +728,7 @@ class ShellNavigationTest {
             dragPanelTo(if (it % 2 == 0) 0.62f else 0.52f)
             assertSame(controller, vm.audio)
             assertTrue(controller.state.value.isPlaying)
+            assertEquals(1.5f, controller.state.value.speed, 0f)
             assertTrue(controller.state.value.positionMs >= position)
             position = controller.state.value.positionMs
             assertEquals(player, compose.onNodeWithTag("transcript-player").fetchSemanticsNode().boundsInRoot)

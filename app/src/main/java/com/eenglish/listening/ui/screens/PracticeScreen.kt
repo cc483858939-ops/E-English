@@ -22,7 +22,8 @@ import java.util.Date
 @Composable
 fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Unit, onSeek: (Long) -> Unit,
     onSelect: (String, String) -> Unit, onBack: () -> Unit, onViewTranscript: () -> Unit,
-    onSubmit: () -> Unit, onConfirm: () -> Unit, onDismiss: () -> Unit, onNew: () -> Unit, onHistory: (String) -> Unit) {
+    onSubmit: () -> Unit, onConfirm: () -> Unit, onDismiss: () -> Unit, onNew: () -> Unit, onHistory: (String) -> Unit,
+    onSeekBy: (Long) -> Unit = {}, onSpeed: (Float) -> Unit = {}) {
     val listState = rememberLazyListState()
     val resumeDraft = state.submitted && state.history.firstOrNull { it.session.partId == state.part?.id }
         ?.session?.status == SessionStatus.IN_PROGRESS
@@ -53,7 +54,7 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
             if (state.part != null) {
                 Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
                     .testTag("practice-player")) {
-                    AudioControls(audio, onToggle, onSeek, compact = true)
+                    AudioControls(audio, onToggle, onSeek, compact = true, onSeekBy = onSeekBy, onSpeed = onSpeed)
                 }
             }
             LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("practice-list"), state = listState, contentPadding = PaddingValues(20.dp)) {
