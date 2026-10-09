@@ -23,6 +23,8 @@ IDENTITY = re.compile(r"(?:^|/)Cambridge-(\d+)/Test(\d+)/Part(\d+)/part\.json$")
 KINDS = ("SINGLE_CHOICE", "MULTIPLE_CHOICE", "MATCHING", "TEXT_INPUT", "SHORT_ANSWER",
          "TABLE_COMPLETION", "NOTE_COMPLETION", "FLOW_COMPLETION", "IMAGE_BASED")
 COUNT_WORDS = {"ONE": 1, "TWO": 2, "THREE": 3, "FOUR": 4, "FIVE": 5, "SIX": 6}
+TYPOGRAPHIC_LIGATURES = str.maketrans({"\ufb00": "ff", "\ufb01": "fi", "\ufb02": "fl",
+                                    "\ufb03": "ffi", "\ufb04": "ffl", "\ufb05": "st", "\ufb06": "st"})
 
 
 def sha(data):
@@ -49,6 +51,12 @@ def safe_name(name):
     return name
 
 
+def is_matching_instruction(value):
+    value = clean(value).lower()
+    return ("correct letter" in value or "letters from" in value or
+            "choose your answers from the box" in value and "write the letters" in value)
+
+
 def source_types(html):
     soup=BeautifulSoup(html,'html.parser')
     counts=Counter()
@@ -68,7 +76,7 @@ def source_types(html):
                 counts['UNCLASSIFIED']+=1
         elif 'gap-filing__' in cls:
             kind='TEXT_INPUT'
-            if 'correct letter' in context.lower() or 'letters from' in context.lower():
+            if is_matching_instruction(context):
                 kind='IMAGE_BASED' if title.select('img') else 'MATCHING'
             else:
                 for phrase,name in [('complete the table','TABLE_COMPLETION'),('complete the notes','NOTE_COMPLETION'),('complete the flow','FLOW_COMPLETION'),('answer the questions','SHORT_ANSWER')]:
@@ -102,6 +110,10 @@ def range_numbers(value):
 
 def input_limit(value):
     upper = clean(value).upper()
+    numeric = re.search(r"\b(ONE|TWO|THREE|FOUR|FIVE|SIX|[1-6])\s+NUMBERS?\b", upper)
+    if numeric and "WORD" not in upper:
+        count = COUNT_WORDS.get(numeric[1], int(numeric[1]) if numeric[1].isdigit() else None)
+        return dict(maxWords=0, maxNumbers=count, numberOnly=True, wordsOrNumber=False)
     if "NUMBER ONLY" in upper or "A NUMBER" in upper and "WORD" not in upper:
         return dict(maxWords=0, maxNumbers=1, numberOnly=True, wordsOrNumber=False)
     match = re.search(r"\b(ONE|TWO|THREE|FOUR|FIVE|SIX|[1-6])\s+WORDS?\b", upper)
@@ -194,9 +206,10 @@ def parse_questions(html, part_id, expected, answers):
                 numbers.append(int(preceding[-1][1]))
             require(len(numbers) == len(set(numbers)), "AMBIGUOUS_GAP_NUMBERS")
             letter_range = re.search(r"\b([A-Z])\s*[-–—]\s*([A-Z])\b", clean(context))
-            matching = "correct letter" in context.lower() or "letters from" in context.lower()
+            matching = is_matching_instruction(context)
             if matching:
-                explicit_labels = [clean(s.get_text()) for s in title.find_all('strong') if re.fullmatch('[A-Z]', clean(s.get_text()))]
+                explicit_labels = [clean(s.get_text()) for s in title.find_all('strong')
+                                   if re.fullmatch('[A-Z]', clean(s.get_text())) and s.find_parent('i') is None]
                 labels = [chr(i) for i in range(ord(letter_range[1]), ord(letter_range[2])+1)] if letter_range else list(dict.fromkeys(explicit_labels))
                 require(2 <= len(labels) <= 26, "INVALID_MATCHING_RANGE")
                 candidate = []
@@ -282,7 +295,10 @@ def normalize(read, book, test, part):
     require(section is not None, "MISSING_QUESTIONS_SECTION")
     # Detect text loss/disagreement without relying on questions.txt as structured data.
     canonical = lambda s: re.sub(r'\s+', '', s)
-    require(canonical(visible(section)) == canonical(text(read('questions.txt'))), "QUESTION_TEXT_HTML_MISMATCH")
+    # Compare equivalent presentation glyphs only. Keep the original HTML text
+    # in models, so existing prompts, transcript keys and highlight hashes stay unchanged.
+    require(canonical(visible(section).translate(TYPOGRAPHIC_LIGATURES)) ==
+            canonical(text(read('questions.txt')).translate(TYPOGRAPHIC_LIGATURES)), "QUESTION_TEXT_HTML_MISMATCH")
     questions, instructions = parse_questions(html, part_id, expected, {e['question']:e for e in entries})
     require(bool(instructions), "MISSING_INSTRUCTIONS")
     segments = []

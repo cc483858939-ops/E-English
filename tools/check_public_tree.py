@@ -17,6 +17,7 @@ for name in filter(None, paths):
 fragments = []
 private_parts = list((root / "app/src/main/assets/listening").glob("*/part.json"))
 private_parts += list((root / "private-data/library/batch/books").glob("*/listening/*/part.json"))
+private_parts += list((root / "private-data/library/rechecked-batch/books").glob("*/listening/*/part.json"))
 for file in private_parts:
     part = json.loads(file.read_text(encoding="utf-8"))
     fragments += [q["prompt"] for q in part["questions"]]

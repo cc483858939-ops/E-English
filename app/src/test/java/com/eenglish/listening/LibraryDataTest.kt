@@ -15,9 +15,9 @@ class LibraryDataTest {
         assumeTrue("Private batch library absent", root.isDirectory)
         val models = root.walkTopDown().filter { it.name == "part.json" }.map { PartCodec.decode(it.readText()) }.toList()
         assertEquals((5..21).toSet(),models.map { it.book }.toSet())
-        assertEquals(254,models.size)
-        assertEquals(2540,models.sumOf { it.questions.size })
-        assertEquals(254,models.map { it.id }.distinct().size)
+        assertEquals(266,models.size)
+        assertEquals(2660,models.sumOf { it.questions.size })
+        assertEquals(266,models.map { it.id }.distinct().size)
         models.forEach { part ->
             val selected = part.questions.associate { q -> q.id to if (q.type == QuestionType.MULTIPLE_CHOICE)
                 part.questions.filter { it.groupId == q.groupId }.map { it.correctAnswer }.sorted().joinToString(",") else q.correctAnswer }

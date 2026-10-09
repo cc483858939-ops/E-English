@@ -44,6 +44,13 @@ class LibraryImportTests(unittest.TestCase):
         source=fixture();source['questions.txt']=b'Different source text'
         with self.assertRaisesRegex(ValueError,'QUESTION_TEXT_HTML_MISMATCH'):normalize(source.__getitem__,5,1,1)
 
+    def test_typographic_ligatures_compare_without_changing_rendered_text(self):
+        source = fixture()
+        source['content.html'] = source['content.html'].replace(b'Fixture', 'of\ufb01ce'.encode())
+        source['questions.txt'] = source['questions.txt'].replace(b'Fixture', b'office')
+        model, _, _ = normalize(source.__getitem__, 5, 1, 1)
+        self.assertIn('of\ufb01ce', model['questions'][0]['prompt'])
+
     def test_answer_maps_and_accepted_answers_are_checked(self):
         source=fixture();answers=json.loads(source['answers.json']);answers['answers'][0]['accepted_answers']=['different']
         source['answers.json']=json.dumps(answers).encode()
@@ -84,7 +91,32 @@ class LibraryImportTests(unittest.TestCase):
     def test_word_and_numeric_limits(self):
         self.assertEqual(2,input_limit('NO MORE THAN TWO WORDS AND/OR A NUMBER')['maxWords'])
         self.assertEqual(2,input_limit('ONE WORD AND/OR TWO NUMBERS')['maxNumbers'])
+        self.assertEqual(dict(maxWords=0, maxNumbers=2, numberOnly=True, wordsOrNumber=False),
+                         input_limit('NO MORE THAN TWO NUMBERS'))
         with self.assertRaisesRegex(ValueError,'MISSING_WORD_LIMIT'):input_limit('Complete below')
+
+    def test_box_matching_instruction_is_not_treated_as_text_input(self):
+        source = fixture(value='A')
+        html = source['content.html'].decode().replace(
+            'Complete the notes below.<br>Write ONE WORD ONLY for each answer.',
+            'Choose your answers from the box and write the letters A-C next to Questions 1-10.')
+        html = html.replace('</i>', '</i><br><strong>A</strong> First<br><strong>B</strong> Second<br><strong>C</strong> Third<br>')
+        source['content.html'] = html.encode()
+        source['questions.txt'] = visible(BeautifulSoup(html, 'html.parser')).encode()
+        model, _, _ = normalize(source.__getitem__, 5, 1, 1)
+        self.assertTrue(all(q['type'] == 'MATCHING' for q in model['questions']))
+        self.assertEqual(['A', 'B', 'C'], [o['id'] for o in model['questions'][0]['options']])
+
+    def test_instruction_letter_is_not_a_duplicate_option_label(self):
+        source = fixture(value='A')
+        html = source['content.html'].decode().replace(
+            'Complete the notes below.<br>Write ONE WORD ONLY for each answer.',
+            'Write the correct letter A, B or <strong>C</strong> next to Questions 1-10.')
+        html = html.replace('</i>', '</i><br><strong>A</strong> First<br><strong>B</strong> Second<br><strong>C</strong> Third<br>')
+        source['content.html'] = html.encode()
+        source['questions.txt'] = visible(BeautifulSoup(html, 'html.parser')).encode()
+        model, _, _ = normalize(source.__getitem__, 5, 1, 1)
+        self.assertEqual(['A', 'B', 'C'], [o['id'] for o in model['questions'][0]['options']])
 
     def test_overlong_source_answer_is_not_silently_accepted(self):
         source=fixture(value='alpha or beta')
