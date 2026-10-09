@@ -59,6 +59,18 @@ class ShellNavigationTest {
         compose.onNodeWithTag("option-21-A").assertIsSelected()
         pressBack()
         compose.onNodeWithText("试题列表").assertIsDisplayed()
+        compose.onNodeWithText("继续练习").assertIsDisplayed()
+        openPractice()
+        compose.onNodeWithTag("practice-list").performScrollToNode(hasTestTag("option-21-A"))
+        compose.onNodeWithTag("option-21-A").assertIsSelected()
+        compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        compose.onNodeWithTag("library-back").performClick()
+        compose.onNodeWithTag("test-9-1").assertIsDisplayed()
+        pressBack()
+        compose.onNodeWithTag("book-9").assertIsDisplayed()
+        pressBack()
+        compose.onNodeWithTag("cancel-exit").assertIsDisplayed().performClick()
+        assertFalse(compose.activity.isFinishing)
     }
 
     @Test fun activityRecreationRestoresDestinationAndTranscriptMode() {
@@ -75,6 +87,46 @@ class ShellNavigationTest {
         compose.onNodeWithTag("option-21-A").assertIsSelected()
         openTranscript()
         compose.onNodeWithText("中文翻译").assertIsSelected()
+    }
+
+    @Test fun realLeftAndRightSystemEdgeGesturesReturnThroughEveryLevel() {
+        val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+        assumeTrue("Requires explicit emulator gesture-navigation configuration",
+            androidx.test.platform.app.InstrumentationRegistry.getArguments().getString("listening.edgeBack") == "true")
+        fun edge(left: Boolean) {
+            val width=compose.activity.window.decorView.width
+            val y=compose.activity.window.decorView.height / 2
+            val start=if(left) 2 else width-2
+            val end=if(left) width/3 else width*2/3
+            instrumentation.uiAutomation.executeShellCommand("input swipe $start $y $end $y 350").use {
+                android.os.ParcelFileDescriptor.AutoCloseInputStream(it).use { stream -> stream.readBytes() }
+            }
+            compose.waitForIdle()
+            assertFalse(compose.activity.isFinishing)
+        }
+        openPractice(); select(21,"A")
+        val session=vm.uiState.value.attempt!!.session.id
+        val controller=vm.audio
+        repeat(2) { cycle ->
+            openTranscript()
+            edge(cycle == 0)
+            compose.onNodeWithText("听力答题").assertIsDisplayed()
+            assertSame(controller,vm.audio)
+            assertEquals(session,vm.uiState.value.attempt!!.session.id)
+            edge(cycle != 0)
+            compose.onNodeWithText("继续练习").assertIsDisplayed()
+            edge(cycle == 0)
+            compose.onNodeWithTag("test-9-1").assertIsDisplayed()
+            edge(cycle != 0)
+            compose.onNodeWithTag("book-9").assertIsDisplayed()
+            edge(cycle == 0)
+            compose.onNodeWithTag("cancel-exit").assertIsDisplayed()
+            edge(cycle != 0)
+            compose.onNodeWithTag("cancel-exit").assertDoesNotExist()
+            openPractice()
+            compose.onNodeWithTag("practice-list").performScrollToNode(hasTestTag("option-21-A"))
+            compose.onNodeWithTag("option-21-A").assertIsSelected()
+        }
     }
 
     @Test fun actualMp3PlaysPausesAndSeeks() {
@@ -659,7 +711,11 @@ class ShellNavigationTest {
     private fun openPractice() {
         compose.waitUntil(15000) { !vm.uiState.value.loading }
         assumeTrue("Private sample not imported", vm.uiState.value.parts.isNotEmpty())
-        compose.onNodeWithText("开始练习").performScrollTo().performClick()
+        if (compose.onAllNodesWithTag("book-9").fetchSemanticsNodes().isNotEmpty())
+            compose.onNodeWithTag("book-9").performScrollTo().performClick()
+        if (compose.onAllNodesWithTag("test-9-1").fetchSemanticsNodes().isNotEmpty())
+            compose.onNodeWithTag("test-9-1").performScrollTo().performClick()
+        compose.onNodeWithTag("open-cambridge-9-test-1-part-3").performScrollTo().performClick()
         compose.waitUntil(10000) { vm.uiState.value.attempt != null && !vm.uiState.value.saving }
     }
     private fun select(number: Int, option: String) {

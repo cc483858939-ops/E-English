@@ -97,7 +97,7 @@ class RecoveredPartDeviceTest {
             val after=repo.loadParts(); assertEquals(48,after.size)
             frozen.forEach { (id,digest) -> assertEquals("Old JSON changed: $id",digest,jsonHashes()[id]) }
             compose.onNodeWithTag("book-11").performScrollTo().assertIsDisplayed()
-            compose.onNodeWithTag("library-search").performScrollTo().performTextInput("cambridge-11-test-1-part-2")
+            compose.onNodeWithTag("library-search").assertIsDisplayed().performTextInput("cambridge-11-test-1-part-2")
             compose.onNodeWithTag("open-cambridge-11-test-1-part-2").performScrollTo().assertIsDisplayed()
             compose.runOnIdle { listState.value=null }
             val added=after.filter { a -> before.none { it.id==a.id } }

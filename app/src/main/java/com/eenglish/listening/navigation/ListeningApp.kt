@@ -22,6 +22,9 @@ import com.eenglish.listening.viewmodel.PracticeViewModel
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
+import androidx.navigation.compose.currentBackStackEntryAsState
+import android.app.Activity
 import com.eenglish.listening.ListeningApplication
 import com.eenglish.listening.ui.components.LocalAnswerSession
 import com.eenglish.listening.ui.components.LocalAnswerSaving
@@ -34,6 +37,14 @@ fun ListeningApp(shellViewModel: ShellViewModel = viewModel(), practiceViewModel
     val highlights by annotationViewModel.highlights.collectAsStateWithLifecycle()
     val annotationError by annotationViewModel.error.collectAsStateWithLifecycle()
     val navController = rememberNavController()
+    val entry by navController.currentBackStackEntryAsState()
+    val currentRoute = entry?.destination?.route
+    val activity = LocalContext.current as? Activity
+    val navigateUp: () -> Unit = {
+        if (practiceViewModel.uiState.value.batchImport?.isRunning != true && !navController.popBackStack()) {
+            navController.navigate(AppDestination.LIST.route) { launchSingleTop = true }
+        }
+    }
     val state by shellViewModel.uiState.collectAsStateWithLifecycle()
     val practice by practiceViewModel.uiState.collectAsStateWithLifecycle()
     val audio by practiceViewModel.audio.state.collectAsStateWithLifecycle()
@@ -56,12 +67,14 @@ fun ListeningApp(shellViewModel: ShellViewModel = viewModel(), practiceViewModel
     practice.batchImport?.let { BatchImportDialog(it, practiceViewModel::dismissBatchImport) }
     NavHost(navController = navController, startDestination = AppDestination.LIST.route) {
         composable(AppDestination.LIST.route) {
-            PartListScreen(practice, onImport = { importLauncher.launch(arrayOf("*/*")) }, onOpen = { id ->
+            PartListScreen(practice, onImport = { importLauncher.launch(arrayOf("*/*")) },
+                backEnabled = currentRoute == AppDestination.LIST.route, onExit = { activity?.finish() }, onOpen = { id ->
                 practiceViewModel.openPart(id)
                 navController.navigate(AppDestination.PRACTICE.route) { launchSingleTop = true }
             })
         }
         composable(AppDestination.PRACTICE.route) {
+            BackHandler(enabled = currentRoute == AppDestination.PRACTICE.route, onBack = navigateUp)
             PracticeScreen(
                 state = practice,
                 audio = audio,
@@ -73,13 +86,14 @@ fun ListeningApp(shellViewModel: ShellViewModel = viewModel(), practiceViewModel
                 onDismiss = practiceViewModel::dismissSubmit,
                 onNew = practiceViewModel::newPractice,
                 onHistory = practiceViewModel::viewHistory,
-                onBack = { navController.popBackStack() },
+                onBack = navigateUp,
                 onViewTranscript = {
                     navController.navigate(AppDestination.TRANSCRIPT.route) { launchSingleTop = true }
                 },
             )
         }
         composable(AppDestination.TRANSCRIPT.route) {
+            BackHandler(enabled = currentRoute == AppDestination.TRANSCRIPT.route, onBack = navigateUp)
             TranscriptScreen(
                 state = practice,
                 audio = audio,
@@ -88,7 +102,7 @@ fun ListeningApp(shellViewModel: ShellViewModel = viewModel(), practiceViewModel
                 mode = state.transcriptMode,
                 onModeChange = shellViewModel::selectTranscriptMode,
                 onSelect = practiceViewModel::selectAnswer,
-                onBack = { navController.popBackStack() },
+                onBack = navigateUp,
             )
         }
     }

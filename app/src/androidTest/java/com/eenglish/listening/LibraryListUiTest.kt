@@ -20,10 +20,11 @@ class LibraryListUiTest {
         compose.setContent { ListeningTheme { PartListScreen(PracticeUiState(loading=false,parts=parts)) { selected=it } } }
         compose.onNodeWithTag("book-14").performScrollTo().performClick()
         compose.onNodeWithTag("test-14-1").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("test-14-1").performClick()
         compose.onNodeWithTag("library-list").performScrollToNode(hasTestTag("open-cambridge-14-test-1-part-3"))
         compose.onNodeWithTag("open-cambridge-14-test-1-part-3").performClick()
         compose.runOnIdle { assertEquals("cambridge-14-test-1-part-3",selected) }
-        compose.onNodeWithTag("library-list").performScrollToNode(hasTestTag("library-search"))
+        compose.onNodeWithTag("library-search").assertIsDisplayed()
         compose.onNodeWithTag("library-search").performTextInput("cambridge-17-test-1-part-4")
         compose.onNodeWithTag("library-list").performScrollToNode(hasTestTag("open-cambridge-17-test-1-part-4"))
         compose.onNodeWithTag("open-cambridge-17-test-1-part-4").assertIsDisplayed()
