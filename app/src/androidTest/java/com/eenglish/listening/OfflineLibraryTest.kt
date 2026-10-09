@@ -19,9 +19,9 @@ import kotlinx.serialization.json.Json
 import org.junit.*
 import org.junit.Assert.*
 
-fun libraryFixture(): ListeningPart {
-    val id = "cambridge-14-test-1-part-1"
-    return ListeningPart(2,id,"IELTS",14,1,1,"Synthetic offline library", "Synthetic instructions",
+fun libraryFixture(book: Int = 14): ListeningPart {
+    val id = "cambridge-$book-test-1-part-1"
+    return ListeningPart(2,id,"IELTS",book,1,1,"Synthetic offline library", "Synthetic instructions",
         "listening/$id/audio.mp3",libraryHash(libraryAudio()),Transcript("Synthetic English", "", listOf(TranscriptSegment("Synthetic English", ""))),
         (1..10).map { n ->
             if (n <= 2) Question("$id-q$n",n,QuestionType.MULTIPLE_CHOICE,"Synthetic group",
@@ -33,11 +33,11 @@ fun libraryFixture(): ListeningPart {
 private fun libraryAudio() = "ID3".toByteArray() + ByteArray(300)
 private fun libraryHash(data: ByteArray) = MessageDigest.getInstance("SHA-256").digest(data).joinToString("") { "%02x".format(it) }
 
-private fun libraryPack(corrupt: Boolean = false, unsafe: Boolean = false): ByteArray {
-    val part = libraryFixture()
+internal fun libraryPack(corrupt: Boolean = false, unsafe: Boolean = false, book: Int = 14, changed: Boolean = false): ByteArray {
+    val part = libraryFixture(book).let { if (changed) it.copy(title = "Synthetic changed title") else it }
     val data = Json.encodeToString(part).toByteArray()
     val audio = libraryAudio()
-    val index = BookIndex(1,14,listOf(PartSummary(part.id,14,1,1,part.title,10,1,10,audio.size.toLong(),libraryHash(data),libraryHash(audio))))
+    val index = BookIndex(1,book,listOf(PartSummary(part.id,book,1,1,part.title,10,1,10,audio.size.toLong(),libraryHash(data),libraryHash(audio))))
     val output = ByteArrayOutputStream()
     ZipOutputStream(output).use { zip ->
         mapOf("index.json" to Json.encodeToString(index).toByteArray(), "listening/${part.id}/part.json" to data,

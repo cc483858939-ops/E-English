@@ -35,7 +35,8 @@ class OfflinePackImporter(private val root: File) {
         }
     }
 
-    suspend fun install(input: InputStream, protectedSample: String? = null): BookIndex = withContext(Dispatchers.IO) {
+    suspend fun install(input: InputStream, protectedSample: String? = null,
+        onProgress: (ImportStage, Int?) -> Unit = { _, _ -> }): BookIndex = withContext(Dispatchers.IO) {
         mutex.withLock {
             root.mkdirs()
             val staging = File(root, "import-${UUID.randomUUID()}").apply { check(mkdir()) }
@@ -60,26 +61,32 @@ class OfflinePackImporter(private val root: File) {
                                 size += count; total += count
                                 require(size <= if (name.endsWith(".json")) 4_000_000 else 128_000_000)
                                 require(total <= 512_000_000) { "Offline pack exceeds size limit" }
-                                require(root.usableSpace > 32_000_000) { "Insufficient storage" }
+                                if (root.usableSpace <= 32_000_000) throw PackImportException(ImportFailure.STORAGE)
                                 output.write(buffer, 0, count)
                             }
                         }
                         zip.closeEntry()
                     }
                 }
+                onProgress(ImportStage.VALIDATING, null)
                 val indexFile = File(staging, "index.json")
+                if (!indexFile.isFile) throw PackImportException(
+                    if (names.isEmpty()) ImportFailure.INVALID_PACK else ImportFailure.DAMAGED)
                 val index = json.decodeFromString<BookIndex>(indexFile.readText()).validate()
+                onProgress(ImportStage.VALIDATING, index.book)
                 val expectedNames = mutableSetOf("index.json")
                 index.parts.forEach { summary ->
                     val directory = File(staging, "listening/${summary.id}")
                     val metadata = File(directory, "part.json")
+                    if (!metadata.isFile || !File(directory, "audio.mp3").isFile)
+                        throw PackImportException(ImportFailure.DAMAGED)
                     require(metadata.inputStream().sha256() == summary.partSha256) { "Part checksum mismatch" }
                     val part = PartCodec.decode(metadata.readText())
                     require(part.id == summary.id && part.book == index.book && part.test == summary.test && part.part == summary.part
                         && part.title == summary.title && part.questions.size == summary.questionCount
                         && part.questions.map { it.number } == (summary.firstNumber..summary.lastNumber).toList())
                     if (part.id == "cambridge-9-test-1-part-3" && protectedSample != null) {
-                        require(part == PartCodec.decode(protectedSample)) { "Bundled sample update conflict" }
+                        if (part != PartCodec.decode(protectedSample)) throw PackImportException(ImportFailure.CONFLICT)
                     }
                     val audio = File(directory, "audio.mp3")
                     require(audio.length() == summary.audioBytes && audio.inputStream().sha256() == summary.audioSha256
@@ -88,6 +95,7 @@ class OfflinePackImporter(private val root: File) {
                     expectedNames += "listening/${part.id}/audio.mp3"
                     require(part.questions.flatMap { it.images }.toSet() == summary.imageHashes.keys) { "Image index mismatch" }
                     summary.imageHashes.forEach { (path, hash) ->
+                        if (!File(directory, path).isFile) throw PackImportException(ImportFailure.DAMAGED)
                         require(File(directory, path).inputStream().sha256() == hash) { "Image checksum mismatch" }
                         val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
                         android.graphics.BitmapFactory.decodeFile(File(directory, path).path, bounds)
@@ -100,9 +108,10 @@ class OfflinePackImporter(private val root: File) {
                 existing[index.book]?.let { folder ->
                     val previous = json.decodeFromString<BookIndex>(File(root, "$folder/index.json").readText()).validate()
                     previous.parts.forEach { old ->
-                        require(index.parts.singleOrNull { it.id == old.id } == old) { "Installed book update conflict" }
+                        if (index.parts.singleOrNull { it.id == old.id } != old) throw PackImportException(ImportFailure.CONFLICT)
                     }
                 }
+                onProgress(ImportStage.SAVING, index.book)
                 val folder = "book-${index.book}-${indexFile.inputStream().sha256()}"
                 val destination = File(root, folder)
                 if (!destination.exists()) check(staging.renameTo(destination)) { "Cannot install book" }

@@ -22,11 +22,11 @@ import com.eenglish.listening.viewmodel.PracticeViewModel
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import com.eenglish.listening.ListeningApplication
 import com.eenglish.listening.ui.components.LocalAnswerSession
 import com.eenglish.listening.ui.components.LocalAnswerSaving
 import com.eenglish.listening.ui.components.LocalQuestionImages
+import com.eenglish.listening.ui.components.BatchImportDialog
 
 @Composable
 fun ListeningApp(shellViewModel: ShellViewModel = viewModel(), practiceViewModel: PracticeViewModel = viewModel()) {
@@ -43,8 +43,8 @@ fun ListeningApp(shellViewModel: ShellViewModel = viewModel(), practiceViewModel
             try { application.parts.readImage(id, path) } catch (_: java.io.IOException) { null }
         } }
     }
-    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let(practiceViewModel::importPack)
+    val importLauncher = rememberLauncherForActivityResult(OfflinePackDocuments()) { uris ->
+        practiceViewModel.importPacks(uris)
     }
 
     CompositionLocalProvider(LocalAnnotations provides AnnotationContext(practice.part?.id, highlights, annotationViewModel::change),
@@ -53,9 +53,10 @@ fun ListeningApp(shellViewModel: ShellViewModel = viewModel(), practiceViewModel
         AlertDialog(onDismissRequest = annotationViewModel::dismissError, text = { Text(message) },
             confirmButton = { TextButton(onClick = annotationViewModel::dismissError) { Text("知道了") } })
     }
+    practice.batchImport?.let { BatchImportDialog(it, practiceViewModel::dismissBatchImport) }
     NavHost(navController = navController, startDestination = AppDestination.LIST.route) {
         composable(AppDestination.LIST.route) {
-            PartListScreen(practice, onImport = { importLauncher.launch(arrayOf("application/zip", "application/octet-stream")) }, onOpen = { id ->
+            PartListScreen(practice, onImport = { importLauncher.launch(arrayOf("*/*")) }, onOpen = { id ->
                 practiceViewModel.openPart(id)
                 navController.navigate(AppDestination.PRACTICE.route) { launchSingleTop = true }
             })

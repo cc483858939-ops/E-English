@@ -40,7 +40,8 @@ fun PartListScreen(state: PracticeUiState, onImport: () -> Unit = {}, onOpen: (S
             item {
                 OutlinedTextField(search, { search = it }, label = { Text("查找册数 / Test / Part") },
                     modifier = Modifier.fillMaxWidth().testTag("library-search"))
-                TextButton(onClick = onImport, enabled = !state.saving) { Text("导入本地资料包") }
+                TextButton(onClick = onImport, enabled = !state.loading && !state.saving && state.batchImport == null,
+                    modifier = Modifier.testTag("import-packs")) { Text("导入本地资料包") }
                 state.importMessage?.let { Text(it) }
             }
             if (state.loading) item { CircularProgressIndicator() }

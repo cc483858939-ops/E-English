@@ -64,12 +64,12 @@ class PartRepository(private val assets: AssetManager, private val library: File
         }
     }
 
-    suspend fun importPack(input: InputStream): BookIndex {
+    suspend fun importPack(input: InputStream, onProgress: (ImportStage, Int?) -> Unit = { _, _ -> }): BookIndex {
         val sample = withContext(Dispatchers.IO) {
             if (assets.list("listening").orEmpty().contains("cambridge-9-test-1-part-3"))
                 assets.open("listening/cambridge-9-test-1-part-3/part.json").bufferedReader().use { it.readText() }
             else null
         }
-        return requireNotNull(importer).install(input, sample)
+        return requireNotNull(importer).install(input, sample, onProgress)
     }
 }

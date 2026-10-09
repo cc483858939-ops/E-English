@@ -9,8 +9,10 @@ import com.eenglish.listening.audio.ListeningAudioController
 import com.eenglish.listening.domain.model.*
 import com.eenglish.listening.domain.grading.Grader
 import android.net.Uri
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import android.provider.OpenableColumns
+import com.eenglish.listening.data.repository.BatchImportUiState
+import com.eenglish.listening.data.repository.BatchPackImporter
+import com.eenglish.listening.data.repository.PackImportSource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,6 +32,7 @@ data class PracticeUiState(
     val confirmMissing: Int? = null,
     val error: String? = null,
     val importMessage: String? = null,
+    val batchImport: BatchImportUiState? = null,
 ) {
     val questions: List<Question> get() = attempt?.questions ?: part?.questions.orEmpty()
     val submitted: Boolean get() = attempt?.session?.status == SessionStatus.SUBMITTED
@@ -99,21 +102,35 @@ class PracticeViewModel(application: Application, private val savedStateHandle: 
             savedStateHandle[SESSION_KEY] = repository.resumeOrCreate(part)
         }
     }
-    fun importPack(uri: Uri) {
-        if (mutableState.value.saving) return
-        mutableState.update { it.copy(importMessage = "正在导入并校验本地资料包…") }
+    fun importPack(uri: Uri) = importPacks(listOf(uri))
+
+    fun importPacks(uris: List<Uri>) {
+        if (uris.isEmpty() || mutableState.value.saving || mutableState.value.batchImport != null) return
+        // One command contains the whole queue. Set running synchronously to block another launch.
+        mutableState.update { it.copy(batchImport = BatchImportUiState(uris.size), importMessage = null) }
         enqueue {
-            try {
-                val index = withContext(Dispatchers.IO) {
-                    requireNotNull(app.contentResolver.openInputStream(uri)).use { app.parts.importPack(it) }
-                }
-                val parts = app.parts.loadParts()
-                mutableState.update { it.copy(parts = parts, importMessage = "Cambridge ${index.book} 已导入 ${index.parts.size} 个 Part") }
-            } catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) {
-                mutableState.update { it.copy(importMessage = "导入失败：资料包不完整、校验冲突或存储不足。现有资料及练习记录已保留。") }
+            val sources = uris.mapIndexed { position, uri ->
+                PackImportSource(name = {
+                    val displayName = app.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                        val column = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        if (column >= 0 && cursor.moveToFirst()) cursor.getString(column) else null
+                    }
+                    displayName?.filterNot { it.isISOControl() }?.take(120)?.takeIf { it.isNotBlank() }
+                        ?: "资料包 ${position + 1}"
+                }, open = {
+                    app.contentResolver.openInputStream(uri) ?: throw java.io.IOException("Document unavailable")
+                })
             }
+            BatchPackImporter(app.parts::loadParts, app.parts::importPack).run(sources,
+                onState = { batch -> mutableState.update { it.copy(batchImport = batch) } },
+                onParts = { parts -> mutableState.update { it.copy(parts = parts) } })
         }
+    }
+    fun dismissBatchImport() {
+        val batch = mutableState.value.batchImport ?: return
+        if (batch.isRunning) return
+        mutableState.update { it.copy(batchImport = null,
+            importMessage = "导入完成：新增 ${batch.addedParts} 个 Part，已存在 ${batch.existingParts} 个 Part，失败 ${batch.failed} 个资料包") }
     }
     fun selectAnswer(questionId: String, optionId: String) {
         val state = mutableState.value
