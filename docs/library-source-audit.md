@@ -1,5 +1,7 @@
 # Cambridge 5–21 source audit
 
+> Historical resource scan and 266-Part baseline. All six pending Parts listed below are now restored with explicit source evidence; current delivery is 272 Parts / 2720 questions. See [pending-part-recovery.md](pending-part-recovery.md) for causes, corrections, preservation checks and actual tests.
+
 Date: 2026-10-08. Copyrighted inputs, detailed hashes/provenance and converted resources remain local and ignored.
 
 The requested `D:/code/E-English.local/listening-sources` directory was absent. All three explicitly supplied `D:/IELTS-Listening-Cambridge-*.zip` files were present and scanned read-only.

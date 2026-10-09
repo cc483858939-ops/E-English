@@ -26,6 +26,7 @@ android {
         it.systemProperty("listening.assets", rootProject.file("app/src/main/assets").absolutePath)
         it.systemProperty("listening.library", rootProject.file("private-data/library/verified-representatives/books").absolutePath)
         it.systemProperty("listening.batch", rootProject.file("private-data/library/rechecked-batch/books").absolutePath)
+        it.systemProperty("listening.pending", rootProject.file("private-data/library/pending-six/normalized").absolutePath)
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

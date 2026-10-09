@@ -1,5 +1,7 @@
 # Full library recheck and local installation
 
+> This records the earlier 266-Part baseline and its full-library tests. Current delivery is 272 Parts / 2720 questions after [targeted recovery of the remaining six](pending-part-recovery.md). The new check preserves all 266 old resources and plays only the six restored recordings; it does not claim a new 272-recording full playback sweep.
+
 Completed: 2026-10-09. Three original archives remain unchanged and private.
 
 ## Corrected findings

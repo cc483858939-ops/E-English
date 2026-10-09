@@ -1,4 +1,4 @@
-> Updated after the source recheck. Latest full-library device results and deployment are recorded in [library-recheck.md](library-recheck.md).
+> Historical 266-Part delivery. The six pending Parts have since been recovered: current delivery is 272 Parts / 2720 questions. Latest targeted verification and private package paths are in [pending-part-recovery.md](pending-part-recovery.md). Earlier full-library playback results remain in [library-recheck.md](library-recheck.md).
 
 # Offline library import and validation
 

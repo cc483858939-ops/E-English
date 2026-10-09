@@ -17,7 +17,9 @@ python tools/import_library.py 'D:/IELTS-Listening-Cambridge-5-13_已修复.zip'
 python tools/import_library.py 'D:/IELTS-Listening-Cambridge-5-13_已修复.zip' 'D:/IELTS-Listening-Cambridge-13-17.zip' 'D:/IELTS-Listening-Cambridge-18-21.zip' --output private-data/library/rechecked-batch --report private-data/library/recheck-audit.json
 ```
 
-真实扫描范围为 17 册、272 个不同 Part。此次成功转换 266 个 Part、2660 道题，生成 17 个资料包；其余 6 个因答案与填写限制冲突或地图选项范围歧义而排除。不能把候选数视为成功数。详见 [资源清单及待处理原因](docs/library-source-audit.md) 和 [导入及验证说明](docs/library-import.md)。版权资源、完整校验和、原始来源记录、资料包、设备测试私有资源均在忽略目录。
+真实扫描范围为 17 册、272 个不同 Part。六个遗留 Part 已定点恢复，当前实际可用 **272 个 Part、2720 道题、68 个完整 Test**。原有 266 个 Part 的 JSON、索引条目、音频和图片字节保持不变。修复依据、测试及本地新包位置见 [六个 Part 恢复报告](docs/pending-part-recovery.md)；[原资源清单](docs/library-source-audit.md) 和 [原导入验证说明](docs/library-import.md) 保留此前 266 个 Part 的历史验证结果。版权资源、原始来源记录和私有修正均在忽略目录。
+
+上面的转换命令不带私有地图修正，仍用于复现原始资料的严格解析结果。当前完整的 17 个包在 `private-data/library/pending-six/updated-library/`；已有题库只需重新导入其中的 Cambridge 6、9、11。定点转换支持重复指定 `--part`，可靠来源修正通过 `--corrections` 传入原始资源哈希及证据，不会改写 ZIP。使用更新包需要包含双空填写支持的当前应用代码。
 
 二次复查工具：先执行转换命令，再运行 `python tools/recheck_library.py`，逐资源核对原 ZIP、资料包和解包数据。开发模拟器可在构建 Debug 与 AndroidTest 后运行 `python tools/install_local_library.py --device emulator-5570`；它先验证完整资料包和全部音频，再使用现有导入器安装，不清空练习数据库。资料包单独推送，不加入 APK。
 
@@ -94,7 +96,7 @@ Windows 使用 `gradlew.bat`，设置 `ANDROID_HOME` / `GRADLE_USER_HOME` 或 `l
 
 自动测试包括严格导入、真实私有样本一致性、独立 JVM 评分、Room 文件重开、并发提交/创建、答题导航、Activity 重建、原文、实际音频播放与进度、历史及重新练习。UI 测试使用专用数据库与资料目录，数据层测试使用独立文件，不清空用户的 `practice.db`。
 
-题库扩展新增 Python 严格解析、重复/冲突、确定性打包与 ZIP 路径测试；JVM 验证 24 个代表性 Part 及全部 266 个成功 Part；设备测试覆盖按册导入、资源校验、三级列表、不同题型及原有记录/高亮保护。真实设备资料包测试需将代表包复制到忽略的 `app/src/androidTest/assets/private-library/`，仅用于本地测试；公开 checkout 缺少私有资料的测试明确 SKIPPED。
+题库扩展新增 Python 严格解析、重复/冲突、确定性打包与 ZIP 路径测试；JVM 验证 24 个代表性 Part、原有 266 个 Part 和恢复的 6 个 Part。设备测试覆盖按册导入、资源校验、三级列表、题型、增量扩展及原有记录/高亮保护。真实资料测试仅使用忽略目录中的本地资源；公开 checkout 缺少私有资料的测试明确 SKIPPED。最近一次定点验证结果见 [恢复报告](docs/pending-part-recovery.md)。
 
 未导入私有资源的公开 checkout 中，实际样本测试明确 SKIPPED：Python 需要 `LISTENING_SAMPLE_ZIP`，JVM 需要转换后的本地资源，实际题库 UI 测试同样需要本地导入。不能把跳过描述为真实练习测试通过。
 

@@ -12,6 +12,7 @@ import json
 from pathlib import Path, PurePosixPath
 import re
 import tempfile
+import unicodedata
 import zipfile
 
 from bs4 import BeautifulSoup
@@ -125,9 +126,23 @@ def input_limit(value):
                 wordsOrNumber=bool(re.search(r"WORDS? OR (?:A|ONE) NUMBER", upper)))
 
 
-def within_limit(value, limit):
-    tokens=value.lower().split()
-    numbers=sum(bool(re.fullmatch(r'[£$€+-]?\d+(?:[.,:/-]\d+)*(?:st|nd|rd|th)?%?', token)) for token in tokens)
+def response_parts(value, separator=None):
+    value = unicodedata.normalize('NFC', clean(value)).lower()
+    if separator is None:
+        return [value]
+    require(separator in ('and', 'or', 'to'), 'INVALID_ANSWER_SEPARATOR')
+    parts = re.split(r'(?:^|\s+)' + separator + r'(?:\s+|$)', value)
+    return parts if len(parts) == 2 and all(parts) else []
+
+
+def within_limit(value, limit, separator=None):
+    parts = response_parts(value, separator)
+    if not parts or not all(parts):
+        return False
+    # AM/PM belongs to a clock number, including source variants with spaces/dots.
+    counted = re.sub(r'(?<!\S)(\d{1,2}(?:[.:]\d{2})?)\s+([ap]\.?m\.?)(?!\S)', r'\1\2', ' '.join(parts))
+    tokens=counted.split()
+    numbers=sum(bool(re.fullmatch(r'(?:[£$€+-]?\d+(?:[.,:/-]\d+)*(?:st|nd|rd|th)?%?|\d{1,2}(?:[.:]\d{2})?[ap]\.?m\.?)', token)) for token in tokens)
     words=len(tokens)-numbers
     return words<=limit['maxWords'] and (limit['maxNumbers'] is None or numbers<=limit['maxNumbers']) and (not limit['numberOnly'] or words==0) and (not limit['wordsOrNumber'] or words==0 or numbers==0)
 
@@ -197,13 +212,22 @@ def parse_questions(html, part_id, expected, answers):
                 if label.isdigit() and int(label) in expected:
                     strong.replace_with(f"[[Q:{label}]]")
             marked = visible(copied)
-            numbers = []
-            for blank in re.finditer(r"\[\[BLANK\]\]", marked):
+            numbers, answer_separators = [], {}
+            blank_matches = list(re.finditer(r"\[\[BLANK\]\]", marked))
+            for position, blank in enumerate(blank_matches):
                 # Some source labels are plain text, not <strong>. Read the explicit
                 # nearest number; never synthesize missing labels from blank order.
                 preceding = list(re.finditer(r"(?<![\w])(" + '|'.join(map(str,expected)) + r")(?![\w])", marked[:blank.start()]))
                 require(bool(preceding), "GAP_NUMBER_NOT_EXPLICIT")
-                numbers.append(int(preceding[-1][1]))
+                number = int(preceding[-1][1])
+                numbers.append(number)
+                # Source sites collapse two answer boxes into one input and explicitly
+                # document its fixed joining text. Never infer this from an answer.
+                end = blank_matches[position+1].start() if position+1 < len(blank_matches) else len(marked)
+                tail = marked[blank.end():end]
+                hint = re.match(r'\s*[（(]\s*(?:此题|本题)(?:请)?(?:以|按)\s*_{2,}\s*(and|or|to)\s*_{2,}\s*形式作答\s*[）)]', tail, re.I)
+                if hint:
+                    answer_separators[number] = hint[1].lower()
             require(len(numbers) == len(set(numbers)), "AMBIGUOUS_GAP_NUMBERS")
             letter_range = re.search(r"\b([A-Z])\s*[-–—]\s*([A-Z])\b", clean(context))
             matching = is_matching_instruction(context)
@@ -246,7 +270,7 @@ def parse_questions(html, part_id, expected, answers):
                     if phrase in context.lower():
                         kind = name
                         break
-                base.update(type="IMAGE_BASED" if image_paths and kind == "TEXT_INPUT" else kind, wordLimit=input_limit(context))
+                base.update(type="IMAGE_BASED" if image_paths and kind == "TEXT_INPUT" else kind, wordLimit=input_limit(instruction or context))
             base.update(prompt=context)
         else:
             raise ValueError("UNSUPPORTED_QUESTION_BLOCK")
@@ -261,7 +285,14 @@ def parse_questions(html, part_id, expected, answers):
                 require(all(a.upper() in [o['id'] for o in question['options']] for a in accepted), "ANSWER_OPTION_MISMATCH")
                 question['correctAnswer'] = accepted[0].upper()
             else:
-                valid=[value for value in accepted if within_limit(value,question['wordLimit'])]
+                separator = answer_separators.get(number)
+                candidates = [value for value in accepted if separator is None or response_parts(value,separator)]
+                valid=[value for value in candidates if within_limit(value,question['wordLimit'])]
+                if not valid and number in answer_separators:
+                    separator = answer_separators[number]
+                    valid = [value for value in candidates if within_limit(value,question['wordLimit'],separator)]
+                    if valid:
+                        question['answerSeparator'] = separator
                 require(bool(valid), 'ACCEPTED_ANSWER_WORD_LIMIT_CONFLICT')
                 question['correctAnswer']=valid[0]
             result.append(question)
@@ -273,7 +304,36 @@ def parse_questions(html, part_id, expected, answers):
     return sorted(result, key=lambda q: q['number']), "\n\n".join(dict.fromkeys(instructions))
 
 
-def normalize(read, book, test, part):
+def load_corrections(path):
+    data = read_json(Path(path).read_text(encoding='utf-8'))
+    require(data.get('schemaVersion') == 1 and isinstance(data.get('parts'),list), 'INVALID_CORRECTION_RECORD')
+    require(len({r['id'] for r in data['parts']}) == len(data['parts']), 'DUPLICATE_CORRECTION_RECORD')
+    return {r['id']:r for r in data['parts']}
+
+
+def corrected_reader(read, record):
+    require(bool(record.get('evidence')) and bool(record.get('resourceHashes')) and bool(record.get('edits')), 'INVALID_CORRECTION_RECORD')
+    resources = {}
+    for filename, digest in record['resourceHashes'].items():
+        require(safe_name(filename) == filename and '/' not in filename, 'INVALID_CORRECTION_RESOURCE')
+        raw = read(filename)
+        require(sha(raw) == digest, 'CORRECTION_SOURCE_HASH_MISMATCH')
+        resources[filename] = raw
+    for edit in record['edits']:
+        name = edit['resource']
+        require(name in ('content.html','questions.txt','answers.json','part.json') and name in resources,
+                'INVALID_CORRECTION_RESOURCE')
+        value = text(resources[name])
+        require(edit['old'] and edit['new'] and edit['count'] > 0 and value.count(edit['old']) == edit['count'],
+                'CORRECTION_TEXT_MISMATCH')
+        resources[name] = value.replace(edit['old'],edit['new']).encode('utf-8')
+    return lambda name: resources[name] if name in resources else read(name)
+
+
+def normalize(read, book, test, part, corrections=None):
+    part_id = f"cambridge-{book}-test-{test}-part-{part}"
+    if corrections and part_id in corrections:
+        read = corrected_reader(read, corrections[part_id])
     metadata = read_json(text(read("part.json")))
     require((metadata['book'], metadata['test'], metadata['part']) == (book,test,part), "IDENTITY_MISMATCH")
     answer_data = read_json(text(read("answers.json")))
@@ -343,7 +403,7 @@ def normalize(read, book, test, part):
                 transcript=dict(english=english,chinese=chinese,segments=segments),questions=questions), audio, images
 
 
-def inventory(sources):
+def inventory(sources, corrections=None, part_ids=None):
     records, archives = [], []
     for source in sources:
         source = Path(source)
@@ -360,6 +420,9 @@ def inventory(sources):
                     continue
                 book,test,part = map(int,match.groups())
                 require(5 <= book <= 21 and 1 <= test <= 4 and 1 <= part <= 4, 'UNEXPECTED_PART_IDENTITY')
+                part_id = f'cambridge-{book}-test-{test}-part-{part}'
+                if part_ids is not None and part_id not in part_ids:
+                    continue
                 prefix = name[:-9]
                 resource_names = [n for n in names if n.startswith(prefix) and not n.endswith('/')]
                 resources = {n[len(prefix):]:archive.read(n) for n in resource_names}
@@ -370,6 +433,8 @@ def inventory(sources):
                               english=bool(resources.get('transcript.txt',b'').strip()),chinese=bool(resources.get('translation.txt',b'').strip()),
                               images=len([f for f in resources if f.lower().endswith(('.png','.jpg','.jpeg','.webp'))]),
                               status='pending',questionTypes={},errors=[])
+                if corrections and part_id in corrections:
+                    record['correctionSha256'] = sha(json.dumps(corrections[part_id],ensure_ascii=False,sort_keys=True).encode())
                 try:
                     data=read_json(text(resources['answers.json']))
                     record['sourceQuestionCount']=len(data['answers'])
@@ -380,7 +445,7 @@ def inventory(sources):
                     record['sourceAnswersComplete']=False
                     record['sourceQuestionTypes']={}
                 try:
-                    model,audio,images = normalize(resources.__getitem__,book,test,part)
+                    model,audio,images = normalize(resources.__getitem__,book,test,part,corrections)
                     record['questionTypes']=dict(Counter(q['type'] for q in model['questions']))
                     record['questions']=len(model['questions'])
                     record['semanticSha256']=sha(json.dumps(model,ensure_ascii=False,sort_keys=True,separators=(',',':')).encode()+audio+b''.join(images[p] for p in sorted(images)))
@@ -399,6 +464,8 @@ def inventory(sources):
     grouped=defaultdict(list)
     for record in records:
         grouped[record['id']].append(record)
+    if part_ids is not None:
+        require(set(grouped) == set(part_ids), 'REQUESTED_PART_MISSING')
     duplicates=[]
     for part_id,copies in grouped.items():
         if len(copies)<2:
@@ -451,7 +518,7 @@ def entry(model,audio,images):
                 audioSha256=sha(audio),imageHashes={p:sha(raw) for p,raw in images.items()})
 
 
-def materialize(report, output, representatives=False):
+def materialize(report, output, representatives=False, corrections=None):
     output=Path(output);output.mkdir(parents=True,exist_ok=True)
     grouped=defaultdict(list)
     for record in report['parts']:
@@ -466,7 +533,7 @@ def materialize(report, output, representatives=False):
         entries=[]
         for record in records:
             with zipfile.ZipFile(record['source']) as archive:
-                model,audio,images=normalize(lambda f:archive.read(record['prefix']+f),record['book'],record['test'],record['part'])
+                model,audio,images=normalize(lambda f:archive.read(record['prefix']+f),record['book'],record['test'],record['part'],corrections)
             destination=directory/'listening'/model['id'];destination.mkdir(parents=True,exist_ok=True)
             resources=dict(images,**{'part.json':json.dumps(model,ensure_ascii=False,indent=2).encode()+b'\n','audio.mp3':audio})
             for filename,raw in resources.items():
@@ -499,11 +566,14 @@ def main():
     parser.add_argument('--output',default='private-data/library')
     parser.add_argument('--audit-only',action='store_true')
     parser.add_argument('--representatives',action='store_true')
+    parser.add_argument('--corrections', help='Private, evidence-backed corrections with exact source resource hashes')
+    parser.add_argument('--part', action='append', help='Only read this Part ID; repeat for a targeted import')
     args=parser.parse_args()
-    report=inventory(args.sources)
+    corrections = load_corrections(args.corrections) if args.corrections else None
+    report=inventory(args.sources,corrections,set(args.part) if args.part else None)
     path=Path(args.report);path.parent.mkdir(parents=True,exist_ok=True)
     if not args.audit_only:
-        report['summary']['materializedParts']=materialize(report,args.output,args.representatives)
+        report['summary']['materializedParts']=materialize(report,args.output,args.representatives,corrections)
     path.write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
     print(json.dumps(report['summary'],ensure_ascii=True))
 

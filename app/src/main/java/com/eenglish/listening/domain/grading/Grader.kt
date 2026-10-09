@@ -16,10 +16,20 @@ object Grader {
 
     fun selection(value: String?): Set<String> = value.orEmpty().split(',').filter { it.isNotBlank() }.toSet()
 
+    fun answerParts(question: Question, value: String?): List<String> {
+        val separator = question.answerSeparator ?: return listOf(value.orEmpty())
+        return value.orEmpty().split(Regex("(?:^|\\s+)${Regex.escape(separator)}(?:\\s+|$)", RegexOption.IGNORE_CASE))
+    }
+
     fun withinLimit(question: Question, value: String): Boolean {
         val limit = question.wordLimit ?: return true
-        val tokens = normalize(value).split(' ').filter { it.isNotBlank() }
-        val numbers = tokens.count { it.matches(Regex("[£$€+-]?\\d+(?:[.,:/-]\\d+)*(?:st|nd|rd|th)?%?")) }
+        val parts = answerParts(question, normalize(value))
+        if (question.answerSeparator != null && (parts.size != 2 || parts.any { it.isBlank() })) return false
+        val counted = parts.joinToString(" ").replace(
+            Regex("(?<!\\S)(\\d{1,2}(?:[.:]\\d{2})?)\\s+([ap]\\.?m\\.?)(?!\\S)"), "$1$2")
+        val tokens = counted.split(' ').filter { it.isNotBlank() }
+        if (tokens.isEmpty()) return false
+        val numbers = tokens.count { it.matches(Regex("(?:[£$€+-]?\\d+(?:[.,:/-]\\d+)*(?:st|nd|rd|th)?%?|\\d{1,2}(?:[.:]\\d{2})?[ap]\\.?m\\.?)")) }
         val words = tokens.size - numbers
         return words <= limit.maxWords && (limit.maxNumbers == null || numbers <= limit.maxNumbers)
             && (!limit.numberOnly || words == 0) && (!limit.wordsOrNumber || words == 0 || numbers == 0)
@@ -43,7 +53,10 @@ object Grader {
     }
 
     fun missingCount(questions: List<Question>, selected: Map<String, String>): Int =
-        questions.filter { it.type != QuestionType.MULTIPLE_CHOICE }.count { selected[it.id].isNullOrBlank() } +
+        questions.filter { it.type != QuestionType.MULTIPLE_CHOICE }.count {
+            selected[it.id].isNullOrBlank() || it.answerSeparator != null &&
+                (answerParts(it, selected[it.id]).size != 2 || answerParts(it, selected[it.id]).any(String::isBlank))
+        } +
         questions.filter { it.type == QuestionType.MULTIPLE_CHOICE }.groupBy { it.groupId }.values.sumOf { group ->
             (group.size - selection(selected[group.first().id]).size).coerceAtLeast(0)
         }

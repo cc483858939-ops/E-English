@@ -5,10 +5,10 @@ import json
 from pathlib import Path
 import zipfile
 
-from import_library import normalize, entry, require, sha
+from import_library import normalize, entry, require, sha, load_corrections
 
 
-def verify(report, directory):
+def verify(report, directory, corrections=None):
     directory = Path(directory)
     validated = [p for p in report['parts'] if p['status'] == 'validated']
     expected_books = sorted({p['book'] for p in validated})
@@ -33,7 +33,7 @@ def verify(report, directory):
                 with zipfile.ZipFile(record['source']) as source:
                     model, audio, pictures = normalize(
                         lambda name: source.read(record['prefix'] + name),
-                        record['book'], record['test'], record['part'])
+                        record['book'], record['test'], record['part'], corrections)
                 item = next(p for p in index['parts'] if p['id'] == model['id'])
                 require(item == entry(model, audio, pictures), 'SOURCE_INDEX_MISMATCH')
                 resources = dict(pictures, **{'audio.mp3': audio,
@@ -63,13 +63,15 @@ def main():
     parser.add_argument('--audit', default='private-data/library/recheck-audit.json')
     parser.add_argument('--packs', default='private-data/library/rechecked-batch')
     parser.add_argument('--report', default='private-data/library/recheck-integrity.json')
+    parser.add_argument('--corrections', help='Private evidence-backed source corrections')
     args = parser.parse_args()
     audit = json.loads(Path(args.audit).read_text(encoding='utf-8'))
     for source in audit['archives']:
         # Original hashes and structure are also rechecked by import_library.py.
         with zipfile.ZipFile(source['path']) as archive:
             require(archive.testzip() is None, 'SOURCE_CRC_ERROR')
-    books = verify(audit, args.packs)
+    corrections = load_corrections(args.corrections) if args.corrections else None
+    books = verify(audit, args.packs, corrections)
     result = dict(books=books, parts=sum(b['parts'] for b in books),
                   questions=sum(b['questions'] for b in books),
                   audioBytes=sum(b['audioBytes'] for b in books),

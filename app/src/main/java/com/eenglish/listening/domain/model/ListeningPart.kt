@@ -30,6 +30,7 @@ data class Question(
     val wordLimit: WordLimit? = null,
     val groupId: String? = null,
     val groupNumbers: List<Int> = emptyList(),
+    val answerSeparator: String? = null,
 ) {
     val acceptableAnswers get() = acceptedAnswers.ifEmpty { listOf(correctAnswer) }
     val isTextInput get() = options.isEmpty()
@@ -80,6 +81,9 @@ data class ListeningPart(
             require(question.images.all { it.matches(Regex("[a-zA-Z0-9_-]+\\.(png|jpg|jpeg|webp)")) }) { "Unsafe image path" }
             if (question.type == QuestionType.IMAGE_BASED) require(question.images.isNotEmpty()) { "Missing question image" }
             question.wordLimit?.let { require(it.maxWords in 0..10 && (it.maxNumbers == null || it.maxNumbers in 0..10)) }
+            question.answerSeparator?.let {
+                require(question.isTextInput && question.wordLimit != null && it in listOf("and", "or", "to")) { "Invalid answer separator" }
+            }
             if (question.type == QuestionType.MULTIPLE_CHOICE) {
                 val group = questions.filter { it.groupId == question.groupId }
                 require(question.groupId != null && question.groupNumbers.size in 2..6

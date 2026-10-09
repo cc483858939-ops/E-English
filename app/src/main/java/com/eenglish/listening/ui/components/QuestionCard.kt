@@ -34,6 +34,9 @@ fun QuestionCard(question: Question, selected: String?, editable: Boolean, showR
                 style = MaterialTheme.typography.labelMedium)
         }
         if (question.isTextInput) {
+            if (question.answerSeparator != null) {
+                PairedAnswerFields(question, selected, editable, onSelect)
+            } else {
             var draft by rememberSaveable(LocalAnswerSession.current, question.id) { mutableStateOf(selected.orEmpty()) }
             var focused by remember { mutableStateOf(false) }
             LaunchedEffect(selected, editable) { if (!focused || !editable) draft = selected.orEmpty() }
@@ -42,6 +45,7 @@ fun QuestionCard(question: Question, selected: String?, editable: Boolean, showR
             }, enabled = editable, label = { Text("Q.${question.number} 答案") },
                 modifier = Modifier.fillMaxWidth().testTag("input-${question.number}").onFocusChanged { focused = it.isFocused },
                 supportingText = { Text(question.instructions.ifBlank { "按题目规定填写单词或数字" }) })
+            }
         }
         val multiple = question.type == QuestionType.MULTIPLE_CHOICE
         val saving = LocalAnswerSaving.current
@@ -77,5 +81,37 @@ fun QuestionCard(question: Question, selected: String?, editable: Boolean, showR
                 color = if (isCorrect) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
             Text("标准答案：${correct?.let { "${it.id}. ${it.text}" } ?: question.acceptableAnswers.joinToString(" / ")}", modifier = Modifier.padding(top = 8.dp).testTag("result-${question.number}"))
         }
+    }
+}
+
+/** Fixed text between source answer boxes is displayed, not counted as user input. */
+@Composable
+private fun PairedAnswerFields(question: Question, selected: String?, editable: Boolean, onSelect: (String) -> Unit) {
+    val parts = Grader.answerParts(question, selected)
+    var first by rememberSaveable(LocalAnswerSession.current, question.id) { mutableStateOf(parts.getOrElse(0) { "" }) }
+    var second by rememberSaveable(LocalAnswerSession.current, question.id) { mutableStateOf(parts.getOrElse(1) { "" }) }
+    var focusedIndex by remember { mutableStateOf<Int?>(null) }
+    val saving = LocalAnswerSaving.current
+    LaunchedEffect(selected, editable, saving) {
+        if (focusedIndex == null && !saving || !editable) {
+            val saved = Grader.answerParts(question, selected)
+            first = saved.getOrElse(0) { "" }; second = saved.getOrElse(1) { "" }
+        }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(question.instructions.ifBlank { "按题目规定填写单词或数字" }, style = MaterialTheme.typography.bodySmall)
+        for (index in 0..1) {
+            if (index == 1) Text(requireNotNull(question.answerSeparator), style = MaterialTheme.typography.labelLarge)
+            OutlinedTextField(value = if (index == 0) first else second, onValueChange = { value ->
+                val left = if (index == 0) value else first
+                val right = if (index == 1) value else second
+                val answer = if (left.isBlank() && right.isBlank()) "" else "$left ${question.answerSeparator} $right"
+                if (answer.length <= 512) { first = left; second = right; onSelect(answer) }
+            }, enabled = editable, label = { Text("Q.${question.number} · 第 ${index + 1} 空") },
+                modifier = Modifier.fillMaxWidth().testTag("input-${question.number}-${index + 1}").onFocusChanged {
+                    if (it.isFocused) focusedIndex = index else if (focusedIndex == index) focusedIndex = null
+                })
+        }
+        Text("中间连接词由题目提供，不计入填写词数；两空合计仍须符合题目限制。", style = MaterialTheme.typography.bodySmall)
     }
 }
