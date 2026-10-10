@@ -21,9 +21,9 @@ class InlineGapFillUiTest {
 Questions 26–30
 Complete the summary below.
 Write NO MORE THAN THREE WORDS.
-Students study 26 _____ in a module.
-A module takes 27 ______ and becomes 28 ______.
-Then study 29 ______ and finish 30 ______.
+The warehouse received 26 _____ boxes.
+Inspectors checked 27 ______ seals and recorded 28 ______ readings.
+The clerk filed 29 ______ notes and printed 30 ______ tags.
         """.trimIndent()
         val questions = (26..30).map { n ->
             Question("ui-q$n", n, QuestionType.TEXT_INPUT, prompt, emptyList(), "fixture",

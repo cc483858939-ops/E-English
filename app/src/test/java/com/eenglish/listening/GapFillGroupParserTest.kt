@@ -12,11 +12,10 @@ Questions 26–30
 Complete the summary below.
 Write NO MORE THAN THREE WORDS AND/OR A NUMBER for each answer.
 
-Modular Courses
-Students study 26 _____ during each module.
-A module takes 27 ___ and the work is very 28 ______.
-To get a Diploma each student has to study 29 _____
-and then work on 30 ______ in depth.
+Synthetic Inventory
+The laboratory ordered 26 _____ containers on Monday.
+Delivery required 27 ___ signatures and 28 ______ inspections.
+Staff counted 29 _____ cartons before labeling 30 ______ shelves.
     """.trimIndent()
 
     private fun questions(prompt: String = summary) = (26..30).map {
@@ -34,7 +33,7 @@ and then work on 30 ______ in depth.
         group.gaps.forEach { gap ->
             assertTrue(summary.substring(gap.start, gap.end).matches(Regex("""\d+\s+_{2,}""")))
         }
-        assertTrue(group.gaps.first().start > summary.indexOf("Modular Courses"))
+        assertTrue(group.gaps.first().start > summary.indexOf("Synthetic Inventory"))
         assertEquals(summary, group.prompt)
         assertEquals(5, Grader.grade(original, emptyMap()).totalCount)
     }
@@ -60,7 +59,7 @@ and then work on 30 ______ in depth.
 
     @Test fun noCrossPartOrNonConsecutiveOrDuplicateGroup() {
         val unrelated = questions().mapIndexed { index, q ->
-            q.copy(prompt = if (index % 2 == 0) summary.replace("Modular Courses", "Different") else summary)
+            q.copy(prompt = if (index % 2 == 0) summary.replace("Synthetic Inventory", "Different") else summary)
         }
         assertEquals(5, GapFillGroupParser.parse(unrelated).size)
         assertEquals(5, GapFillGroupParser.parse(questions().toMutableList().apply {
