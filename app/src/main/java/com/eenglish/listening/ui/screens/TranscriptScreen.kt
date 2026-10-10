@@ -18,7 +18,7 @@ import com.eenglish.listening.audio.AudioState
 import com.eenglish.listening.ui.components.ResizableQuestionPanel
 import com.eenglish.listening.ui.components.AnnotatableText
 import com.eenglish.listening.domain.annotation.AnnotationDocument
-import com.eenglish.listening.domain.gapfill.GapFillGroupParser
+import com.eenglish.listening.domain.gapfill.QuestionLayoutDisplayParser
 import com.eenglish.listening.domain.gapfill.QuestionDisplayItem
 import com.eenglish.listening.viewmodel.PracticeUiState
 import com.eenglish.listening.viewmodel.TranscriptMode
@@ -34,7 +34,9 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
         return
     }
     val questions = state.questions
-    val displayItems = remember(questions) { GapFillGroupParser.parse(questions) }
+    val displayItems = remember(questions, state.questionLayout) {
+        QuestionLayoutDisplayParser.parse(questions, state.questionLayout?.groups.orEmpty())
+    }
     val sessionId = state.attempt?.session?.id
     var questionNumber by rememberSaveable(sessionId, state.part?.id) {
         mutableIntStateOf(questions.firstOrNull()?.number ?: 0)
@@ -47,6 +49,8 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
     val question = questions.getOrNull(index)
     val activeGroup = displayItems.asSequence().filterIsInstance<QuestionDisplayItem.InlineGroup>()
         .firstOrNull { item -> item.group.questions.any { it.id == question?.id } }?.group
+    val activeStructured = displayItems.asSequence().filterIsInstance<QuestionDisplayItem.StructuredLayout>()
+        .firstOrNull { item -> item.questions.any { it.id == question?.id } }
     val transcriptScroll = rememberScrollState()
     val questionScroll = rememberScrollState()
     var readingOffsetToRestore by remember { mutableStateOf<Int?>(null) }
@@ -56,7 +60,9 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
     var restoreRequest by remember { mutableIntStateOf(0) }
     var cardHeaderHeightPx by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
-    LaunchedEffect(activeGroup?.questions?.first()?.id ?: question?.id) { questionScroll.scrollTo(0) }
+    LaunchedEffect(activeGroup?.questions?.first()?.id ?: activeStructured?.group?.groupId ?: question?.id) {
+        questionScroll.scrollTo(0)
+    }
     LaunchedEffect(restoreRequest) {
         // Only restore after a resize gesture or toggle, never on every drag frame/recomposition.
         if (readingOffsetToRestore == null && questionOffsetToRestore == null) return@LaunchedEffect
@@ -188,7 +194,9 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
                             onPrevious = { questionNumber = questions[index - 1].number },
                             onNext = { questionNumber = questions[index + 1].number },
                             onJump = { showJump = true }, onSelect = { onSelect(question.id, it) },
-                            inlineGroup = activeGroup, answers = state.answers + state.inlineDrafts,
+                            inlineGroup = activeGroup, structuredGroup = activeStructured?.group,
+                            structuredQuestions = activeStructured?.questions.orEmpty(),
+                            answers = state.answers + state.inlineDrafts,
                             saving = state.saving, dirty = state.inlineDrafts.isNotEmpty(),
                             onGroupSelect = onSelect, onGroupEdit = onInlineEdit,
                             onGroupCommit = onInlineCommit, onActivate = { questionNumber = it },

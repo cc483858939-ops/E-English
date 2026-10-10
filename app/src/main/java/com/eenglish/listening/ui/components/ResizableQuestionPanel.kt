@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextOverflow
 import com.eenglish.listening.domain.model.Question
+import com.eenglish.listening.domain.model.QuestionLayoutGroup
 import com.eenglish.listening.domain.gapfill.GapFillGroup
 import kotlin.math.roundToInt
 
@@ -32,6 +33,7 @@ fun ResizableQuestionPanel(question: Question, selected: String?, expanded: Bool
     onSelect: (String) -> Unit, onHeaderSize: (Int) -> Unit,
     onResizeStarted: () -> Unit, onResizeDelta: (Float) -> Unit, onResizeStopped: () -> Unit,
     onSetRatio: (Float) -> Unit, inlineGroup: GapFillGroup? = null,
+    structuredGroup: QuestionLayoutGroup? = null, structuredQuestions: List<Question> = emptyList(),
     answers: Map<String, String> = emptyMap(), saving: Boolean = false,
     dirty: Boolean = false,
     onGroupSelect: (String, String) -> Unit = { _, _ -> },
@@ -91,6 +93,11 @@ fun ResizableQuestionPanel(question: Question, selected: String?, expanded: Bool
                             activeQuestionNumber = question.number, onActivate = onActivate,
                             onSelect = onGroupSelect, onEdit = onGroupEdit,
                             onCommit = onGroupCommit, dirty = dirty)
+                    } else if (structuredGroup != null && structuredQuestions.isNotEmpty()) {
+                        StructuredLayoutGroup(structuredGroup, structuredQuestions, answers, editable,
+                            submitted, saving, dirty, activeQuestionNumber = question.number,
+                            onActivate = onActivate, onSelect = onGroupSelect, onEdit = onGroupEdit,
+                            onCommit = onGroupCommit)
                     } else {
                         QuestionCard(question, selected, editable, showResult = submitted, onSelect = onSelect)
                     }

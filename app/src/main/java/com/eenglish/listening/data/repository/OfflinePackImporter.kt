@@ -2,7 +2,9 @@ package com.eenglish.listening.data.repository
 
 import android.util.AtomicFile
 import com.eenglish.listening.data.assets.PartCodec
+import com.eenglish.listening.data.assets.QuestionLayoutCodec
 import com.eenglish.listening.domain.model.BookIndex
+import com.eenglish.listening.domain.layout.QuestionLayoutValidator
 import java.io.File
 import java.io.InputStream
 import java.security.MessageDigest
@@ -20,6 +22,20 @@ internal fun InputStream.sha256(): String = use { stream ->
     val buffer = ByteArray(32768)
     while (true) { val count = stream.read(buffer); if (count < 0) break; digest.update(buffer, 0, count) }
     digest.digest().joinToString("") { "%02x".format(it) }
+}
+
+private fun ByteArray.sha256(): String = MessageDigest.getInstance("SHA-256")
+    .digest(this).joinToString("") { "%02x".format(it) }
+
+/** Existing Parts are immutable; only a validated display-sidecar digest may change. */
+internal fun validateDisplayOnlyUpdate(previous: BookIndex, replacement: BookIndex) {
+    if (previous.book != replacement.book) throw PackImportException(ImportFailure.CONFLICT)
+    previous.parts.forEach { old ->
+        val next = replacement.parts.singleOrNull { it.id == old.id }
+        if (next == null || next.copy(layoutSha256 = null) != old.copy(layoutSha256 = null)) {
+            throw PackImportException(ImportFailure.CONFLICT)
+        }
+    }
 }
 
 /** Immutable book directories + one atomic catalogue pointer; no practice DB writes. */
@@ -48,7 +64,7 @@ class OfflinePackImporter(private val root: File) {
                         val entry = zip.nextEntry ?: break
                         val name = entry.name
                         require(names.add(name) && names.size <= 256) { "Duplicate/too many pack entries" }
-                        require(name == "index.json" || name.matches(Regex("listening/cambridge-\\d+-test-[1-4]-part-[1-4]/(?:part\\.json|audio\\.mp3|[a-zA-Z0-9_-]+\\.(?:png|jpg|jpeg|webp))"))) { "Unsafe pack path" }
+                        require(name == "index.json" || name.matches(Regex("listening/cambridge-\\d+-test-[1-4]-part-[1-4]/(?:part\\.json|layout\\.json|audio\\.mp3|[a-zA-Z0-9_-]+\\.(?:png|jpg|jpeg|webp))"))) { "Unsafe pack path" }
                         require(!entry.isDirectory)
                         val file = File(staging, name)
                         require(file.canonicalPath.startsWith(staging.canonicalPath + File.separator))
@@ -80,8 +96,9 @@ class OfflinePackImporter(private val root: File) {
                     val metadata = File(directory, "part.json")
                     if (!metadata.isFile || !File(directory, "audio.mp3").isFile)
                         throw PackImportException(ImportFailure.DAMAGED)
-                    require(metadata.inputStream().sha256() == summary.partSha256) { "Part checksum mismatch" }
-                    val part = PartCodec.decode(metadata.readText())
+                    val metadataBytes = metadata.readBytes()
+                    require(metadataBytes.sha256() == summary.partSha256) { "Part checksum mismatch" }
+                    val part = PartCodec.decode(metadataBytes.toString(Charsets.UTF_8))
                     require(part.id == summary.id && part.book == index.book && part.test == summary.test && part.part == summary.part
                         && part.title == summary.title && part.questions.size == summary.questionCount
                         && part.questions.map { it.number } == (summary.firstNumber..summary.lastNumber).toList())
@@ -93,6 +110,15 @@ class OfflinePackImporter(private val root: File) {
                         && part.audioSha256 == summary.audioSha256) { "Audio checksum mismatch" }
                     expectedNames += "listening/${part.id}/part.json"
                     expectedNames += "listening/${part.id}/audio.mp3"
+                    val layoutFile = File(directory, "layout.json")
+                    if (summary.layoutSha256 != null) {
+                        if (!layoutFile.isFile) throw PackImportException(ImportFailure.DAMAGED)
+                        val layoutBytes = layoutFile.readBytes()
+                        require(layoutBytes.sha256() == summary.layoutSha256) { "Layout checksum mismatch" }
+                        val layout = QuestionLayoutCodec.decode(layoutBytes)
+                        QuestionLayoutValidator.validate(layout, part, metadataBytes)
+                        expectedNames += "listening/${part.id}/layout.json"
+                    }
                     require(part.questions.flatMap { it.images }.toSet() == summary.imageHashes.keys) { "Image index mismatch" }
                     summary.imageHashes.forEach { (path, hash) ->
                         if (!File(directory, path).isFile) throw PackImportException(ImportFailure.DAMAGED)
@@ -107,9 +133,7 @@ class OfflinePackImporter(private val root: File) {
                 val existing = installed()
                 existing[index.book]?.let { folder ->
                     val previous = json.decodeFromString<BookIndex>(File(root, "$folder/index.json").readText()).validate()
-                    previous.parts.forEach { old ->
-                        if (index.parts.singleOrNull { it.id == old.id } != old) throw PackImportException(ImportFailure.CONFLICT)
-                    }
+                    validateDisplayOnlyUpdate(previous, index)
                 }
                 onProgress(ImportStage.SAVING, index.book)
                 val folder = "book-${index.book}-${indexFile.inputStream().sha256()}"

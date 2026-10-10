@@ -126,6 +126,42 @@ def input_limit(value):
                 wordsOrNumber=bool(re.search(r"WORDS? OR (?:A|ONE) NUMBER", upper)))
 
 
+def _word_limit_phrase(value):
+    token = r"(?:ONE|TWO|THREE|FOUR|FIVE|SIX|[1-6])"
+    number = r"(?:A|ONE|TWO|THREE|[1-3])"
+    patterns = (
+        rf"\bNO MORE THAN\s+{token}\s+WORDS?(?:\s+(?:AND/OR|OR)\s+{number}\s+NUMBERS?)?",
+        rf"\b{token}\s+WORDS?(?:\s+ONLY)?(?:\s+(?:AND/OR|OR)\s+{number}\s+NUMBERS?)?",
+        rf"\b{number}\s+NUMBERS?(?:\s+ONLY)?",
+        r"\bNUMBER ONLY\b",
+    )
+    normalized = clean(value)
+    for pattern in patterns:
+        match = re.search(pattern, normalized, re.I)
+        if match:
+            return match.group(0)
+    return None
+
+
+def word_limit_instruction(instruction, context):
+    """Recover a visibly split rule only when the selected instruction lost its limit.
+
+    Preserve the historic parser whenever the selected text already contains a word/number
+    rule. One source splits "Write", its limit, and "for each answer" across adjacent <i>
+    nodes; in that case the complete visible direction line is a safe recovery source.
+    """
+    if isinstance(instruction, str) and instruction:
+        if (not re.search(r"\bWORDS?\b|\bNUMBERS?\b", instruction, re.I)
+                and re.search(r"\bWrite\b", instruction, re.I)):
+            for line in context.splitlines() if isinstance(context, str) else ():
+                if (re.search(r"\bWrite\b", line, re.I) and
+                        re.search(r"\bfor each answer\b", line, re.I)):
+                    phrase = _word_limit_phrase(line)
+                    if phrase:
+                        return phrase
+    return None
+
+
 def response_parts(value, separator=None):
     value = unicodedata.normalize('NFC', clean(value)).lower()
     if separator is None:
@@ -270,7 +306,9 @@ def parse_questions(html, part_id, expected, answers):
                     if phrase in context.lower():
                         kind = name
                         break
-                base.update(type="IMAGE_BASED" if image_paths and kind == "TEXT_INPUT" else kind, wordLimit=input_limit(instruction or context))
+                limit_source = word_limit_instruction(instruction, context) or instruction or context
+                base.update(type="IMAGE_BASED" if image_paths and kind == "TEXT_INPUT" else kind,
+                            wordLimit=input_limit(limit_source))
             base.update(prompt=context)
         else:
             raise ValueError("UNSUPPORTED_QUESTION_BLOCK")

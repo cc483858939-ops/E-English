@@ -2,6 +2,7 @@ package com.eenglish.listening.domain.gapfill
 
 import com.eenglish.listening.domain.model.Question
 import com.eenglish.listening.domain.model.QuestionType
+import com.eenglish.listening.domain.model.QuestionLayoutGroup
 
 /** All offsets refer to the untouched Question.prompt in UTF-16 code units. */
 data class NumberedGap(val number: Int, val questionId: String, val start: Int, val end: Int)
@@ -15,6 +16,7 @@ data class GapFillGroup(val questions: List<Question>, val prompt: String, val g
 sealed interface QuestionDisplayItem {
     data class Single(val question: Question) : QuestionDisplayItem
     data class InlineGroup(val group: GapFillGroup) : QuestionDisplayItem
+    data class StructuredLayout(val group: QuestionLayoutGroup, val questions: List<Question>) : QuestionDisplayItem
 }
 
 /**

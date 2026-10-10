@@ -16,7 +16,7 @@ import com.eenglish.listening.viewmodel.PracticeUiState
 import com.eenglish.listening.domain.grading.Grade
 import com.eenglish.listening.domain.grading.Grader
 import com.eenglish.listening.domain.model.SessionStatus
-import com.eenglish.listening.domain.gapfill.GapFillGroupParser
+import com.eenglish.listening.domain.gapfill.QuestionLayoutDisplayParser
 import com.eenglish.listening.domain.gapfill.QuestionDisplayItem
 import java.text.DateFormat
 import java.util.Date
@@ -29,7 +29,9 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
     onInlineEdit: (String, String) -> Unit = onSelect,
     onInlineCommit: (String) -> Unit = {}, onFlushInline: () -> Unit = {}) {
     val listState = rememberLazyListState()
-    val displayItems = remember(state.questions) { GapFillGroupParser.parse(state.questions) }
+    val displayItems = remember(state.questions, state.questionLayout) {
+        QuestionLayoutDisplayParser.parse(state.questions, state.questionLayout?.groups.orEmpty())
+    }
     val resumeDraft = state.submitted && state.history.firstOrNull { it.session.partId == state.part?.id }
         ?.session?.status == SessionStatus.IN_PROGRESS
     LaunchedEffect(state.attempt?.session?.id, state.submitted) { listState.scrollToItem(0) }
@@ -86,6 +88,7 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
                     items(displayItems, key = { entry -> when (entry) {
                         is QuestionDisplayItem.Single -> entry.question.id
                         is QuestionDisplayItem.InlineGroup -> "inline-${entry.group.questions.first().id}"
+                        is QuestionDisplayItem.StructuredLayout -> "layout-${entry.group.groupId}"
                     } }) { entry ->
                         when (entry) {
                             is QuestionDisplayItem.Single -> {
@@ -100,6 +103,12 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
                                 submitted = state.submitted,
                                 saving = state.saving, dirty = state.inlineDrafts.isNotEmpty(),
                                 onSelect = onSelect, onEdit = onInlineEdit, onCommit = onInlineCommit)
+                            is QuestionDisplayItem.StructuredLayout -> StructuredLayoutGroup(
+                                entry.group, entry.questions, state.answers + state.inlineDrafts,
+                                editable = !state.submitted && !state.submitting && state.attempt != null,
+                                submitted = state.submitted, saving = state.saving,
+                                dirty = state.inlineDrafts.isNotEmpty(), onSelect = onSelect,
+                                onEdit = onInlineEdit, onCommit = onInlineCommit)
                         }
                     }
                     item {

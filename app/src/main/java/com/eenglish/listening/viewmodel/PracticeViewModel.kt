@@ -26,6 +26,7 @@ data class PracticeUiState(
     val loading: Boolean = true,
     val parts: List<PartSummary> = emptyList(),
     val part: ListeningPart? = null,
+    val questionLayout: QuestionLayoutDocument? = null,
     val attempt: PracticeAttempt? = null,
     val history: List<PracticeAttempt> = emptyList(),
     val answers: Map<String, String> = emptyMap(),
@@ -78,7 +79,8 @@ class PracticeViewModel(application: Application, private val savedStateHandle: 
                 val parts = app.parts.loadParts()
                 val selected = parts.firstOrNull { it.id == savedStateHandle.get<String>(PART_KEY) } ?: parts.firstOrNull()
                 val part = selected?.let { app.parts.loadPart(it.id) }
-                mutableState.update { it.copy(parts = parts, part = part) }
+                val questionLayout = part?.let { app.parts.loadLayout(it) }
+                mutableState.update { it.copy(parts = parts, part = part, questionLayout = questionLayout) }
                 part?.let { audio.load(app.parts.audioPath(it)) }
                 repository.observeAll().collect { attempts -> reconcile(attempts) }
             } catch (cancelled: CancellationException) { throw cancelled }
@@ -111,10 +113,11 @@ class PracticeViewModel(application: Application, private val savedStateHandle: 
         queuedInline.clear()
         submitAfterSave = false
         mutableState.update { it.copy(part = null, attempt = null, answers = emptyMap(),
-            inlineDrafts = emptyMap(), loading = true, confirmMissing = null) }
+            questionLayout = null, inlineDrafts = emptyMap(), loading = true, confirmMissing = null) }
         enqueue {
             val part = app.parts.loadPart(partId)
-            mutableState.update { it.copy(part = part) }
+            val questionLayout = app.parts.loadLayout(part)
+            mutableState.update { it.copy(part = part, questionLayout = questionLayout) }
             audio.load(app.parts.audioPath(part))
             savedStateHandle[SESSION_KEY] = repository.resumeOrCreate(part)
         }
@@ -141,6 +144,10 @@ class PracticeViewModel(application: Application, private val savedStateHandle: 
             BatchPackImporter(app.parts::loadParts, app.parts::importPack).run(sources,
                 onState = { batch -> mutableState.update { it.copy(batchImport = batch) } },
                 onParts = { parts -> mutableState.update { it.copy(parts = parts) } })
+            val currentPart = mutableState.value.part
+            val parts = app.parts.loadParts()
+            val questionLayout = currentPart?.let { app.parts.loadLayout(it) }
+            mutableState.update { it.copy(parts = parts, questionLayout = questionLayout) }
         }
     }
     fun dismissBatchImport() {
@@ -162,7 +169,7 @@ class PracticeViewModel(application: Application, private val savedStateHandle: 
     fun editInlineAnswer(questionId: String, value: String) {
         val state = mutableState.value
         if (state.submitted || state.submitting || state.attempt == null || value.length > 512 ||
-            state.questions.none { it.id == questionId && it.isTextInput && it.answerSeparator == null }) return
+            state.questions.none { it.id == questionId && it.isTextInput }) return
         mutableState.update { it.copy(inlineDrafts = it.inlineDrafts + (questionId to value), error = null) }
         inlineDebounces.remove(questionId)?.cancel()
         inlineDebounces[questionId] = viewModelScope.launch {

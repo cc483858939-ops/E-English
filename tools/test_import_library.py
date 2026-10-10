@@ -95,6 +95,24 @@ class LibraryImportTests(unittest.TestCase):
                          input_limit('NO MORE THAN TWO NUMBERS'))
         with self.assertRaisesRegex(ValueError,'MISSING_WORD_LIMIT'):input_limit('Complete below')
 
+    def test_split_limit_instruction_is_recovered_without_body_number_contamination(self):
+        source = fixture()
+        html = source['content.html'].decode()
+        html = html.replace(
+            '<i>Questions 1-10<br>Complete the notes below.<br>Write ONE WORD ONLY for each answer.</i>',
+            '<i>Questions 1-10</i><br><i>Complete the notes below.</i><br><i>Write</i> '
+            '<i>NO MORE THAN THREE WORDS AND/OR A NUMBER</i> <i>for each answer.</i>')
+        html = html.replace('Fixture item', 'Fixture item; a number of examples and numbers of samples follow')
+        source['content.html'] = html.encode()
+        soup = BeautifulSoup(html, 'html.parser')
+        source['questions.txt'] = visible(soup.select_one('section.questions')).encode()
+
+        model, _, _ = normalize(source.__getitem__, 5, 1, 1)
+
+        self.assertTrue(all(q['wordLimit'] == dict(maxWords=3, maxNumbers=1,
+                                                   numberOnly=False, wordsOrNumber=False)
+                            for q in model['questions']))
+
     def test_box_matching_instruction_is_not_treated_as_text_input(self):
         source = fixture(value='A')
         html = source['content.html'].decode().replace(

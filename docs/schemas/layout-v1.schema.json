@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://eenglish.invalid/schemas/layout-v1.schema.json",
+  "title": "E-English Question Layout Schema v1",
+  "type": "object",
+  "required": ["schemaVersion", "partId", "basePartSha256", "groups"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "partId": { "type": "string", "pattern": "^cambridge-(?:[5-9]|1[0-9]|2[01])-test-[1-4]-part-[1-4]$" },
+    "basePartSha256": { "$ref": "#/$defs/sha256" },
+    "groups": {
+      "type": "array",
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/group" }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "locator": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "group": {
+      "type": "object",
+      "required": ["groupId", "layoutKind", "questionIds", "promptHashes", "source", "blocks"],
+      "properties": {
+        "groupId": { "type": "string", "pattern": "^[a-z0-9-]+-layout-[a-z0-9-]{1,80}$" },
+        "layoutKind": { "enum": ["summaryCompletion", "notesCompletion", "formCompletion", "sentenceCompletion", "linearTextCompletion", "shortAnswerInline"] },
+        "questionIds": { "type": "array", "minItems": 1, "maxItems": 10, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "promptHashes": { "type": "object", "minProperties": 1, "maxProperties": 10, "additionalProperties": { "$ref": "#/$defs/sha256" } },
+        "source": { "$ref": "#/$defs/groupSource" },
+        "blocks": { "type": "array", "minItems": 1, "maxItems": 512, "items": { "$ref": "#/$defs/block" } }
+      },
+      "additionalProperties": false
+    },
+    "groupSource": {
+      "type": "object",
+      "required": ["resource", "sha256", "locator", "sourceKind"],
+      "properties": {
+        "resource": { "const": "content.html" },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "locator": { "$ref": "#/$defs/locator" },
+        "sourceKind": { "type": "string", "minLength": 1, "maxLength": 64 }
+      },
+      "additionalProperties": false
+    },
+    "promptTextSource": {
+      "type": "object",
+      "required": ["kind", "questionId", "startUtf16", "endUtf16"],
+      "properties": {
+        "kind": { "const": "prompt" },
+        "questionId": { "type": "string", "minLength": 1 },
+        "startUtf16": { "type": "integer", "minimum": 0 },
+        "endUtf16": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "htmlTextSource": {
+      "type": "object",
+      "required": ["kind", "resource", "locator"],
+      "properties": {
+        "kind": { "const": "html" },
+        "resource": { "const": "content.html" },
+        "locator": { "$ref": "#/$defs/locator" }
+      },
+      "additionalProperties": false
+    },
+    "promptGapSource": {
+      "type": "object",
+      "required": ["kind", "questionId", "startUtf16", "endUtf16"],
+      "properties": {
+        "kind": { "const": "prompt-anchor" },
+        "questionId": { "type": "string", "minLength": 1 },
+        "startUtf16": { "type": "integer", "minimum": 0 },
+        "endUtf16": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "htmlGapSource": {
+      "type": "object",
+      "required": ["kind", "resource", "locator"],
+      "properties": {
+        "kind": { "const": "html-marker" },
+        "resource": { "const": "content.html" },
+        "locator": { "$ref": "#/$defs/locator" }
+      },
+      "additionalProperties": false
+    },
+    "block": {
+      "oneOf": [
+        {
+          "type": "object", "required": ["type", "text", "source"],
+          "properties": { "type": { "const": "text" }, "text": { "type": "string", "minLength": 1, "maxLength": 100000 }, "source": { "oneOf": [{ "$ref": "#/$defs/promptTextSource" }, { "$ref": "#/$defs/htmlTextSource" }] } },
+          "additionalProperties": false
+        },
+        {
+          "type": "object", "required": ["type", "text", "source"],
+          "properties": { "type": { "const": "fixedText" }, "text": { "type": "string", "minLength": 1, "maxLength": 100000 }, "source": { "oneOf": [{ "$ref": "#/$defs/promptTextSource" }, { "$ref": "#/$defs/htmlTextSource" }] } },
+          "additionalProperties": false
+        },
+        {
+          "type": "object", "required": ["type", "questionId", "questionNumber", "slotIndex", "source"],
+          "properties": { "type": { "const": "blank" }, "questionId": { "type": "string", "minLength": 1 }, "questionNumber": { "type": "integer", "minimum": 1 }, "slotIndex": { "type": "integer", "minimum": 0, "maximum": 1 }, "source": { "oneOf": [{ "$ref": "#/$defs/promptGapSource" }, { "$ref": "#/$defs/htmlGapSource" }] } },
+          "additionalProperties": false
+        },
+        {
+          "type": "object", "required": ["type"],
+          "properties": { "type": { "const": "lineBreak" } },
+          "additionalProperties": false
+        },
+        {
+          "type": "object", "required": ["type", "children"],
+          "properties": { "type": { "const": "paragraph" }, "children": { "type": "array", "minItems": 1, "maxItems": 512, "items": { "$ref": "#/$defs/block" } } },
+          "additionalProperties": false
+        },
+        {
+          "type": "object", "required": ["type", "children"],
+          "properties": { "type": { "const": "listItem" }, "marker": { "enum": ["•", "●", "▪", "-", "*"] }, "children": { "type": "array", "minItems": 1, "maxItems": 512, "items": { "$ref": "#/$defs/block" } } },
+          "additionalProperties": false
+        },
+        {
+          "type": "object", "required": ["type", "children"],
+          "properties": { "type": { "const": "formRow" }, "label": { "type": "string", "maxLength": 2000 }, "children": { "type": "array", "minItems": 1, "maxItems": 512, "items": { "$ref": "#/$defs/block" } } },
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}
