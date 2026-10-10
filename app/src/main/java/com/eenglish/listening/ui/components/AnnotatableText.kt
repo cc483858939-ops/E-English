@@ -91,6 +91,7 @@ fun AnnotatableText(document: AnnotationDocument, modifier: Modifier = Modifier,
                     annotations.onChange(documents.flatMap { it.selection(partId, start, end) }, add)
                 }
             }
+            view.copyTransform = null
             view.onTap = onTap
             view.onGapClick = onGapClick
             view.gapBackground = backgroundColor
@@ -107,6 +108,7 @@ class SelectableAnnotationTextView(context: Context) : TextView(context) {
     var canAnnotate = false
     var onMark: (Int, Int, Boolean) -> Unit = { _, _, _ -> }
     var onTap: (() -> Unit)? = null
+    var copyTransform: ((Int, Int) -> String)? = null
     var onGapClick: ((Int) -> Unit)? = null
     var gapBackground: Int = 0xFFE2E8FF.toInt()
     var gapForeground: Int = 0xFF16235C.toInt()
@@ -149,7 +151,7 @@ class SelectableAnnotationTextView(context: Context) : TextView(context) {
                 if (start < 0 || end <= start || end > text.length) return false
                 when (item.itemId) {
                     android.R.id.copy -> (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
-                        .setPrimaryClip(ClipData.newPlainText("E-English", text.subSequence(start, end).toString()))
+                        .setPrimaryClip(ClipData.newPlainText("E-English", copyTransform?.invoke(start, end) ?: text.subSequence(start, end).toString()))
                     ADD -> if (canAnnotate) onMark(start, end, true)
                     REMOVE -> if (canAnnotate) onMark(start, end, false)
                     android.R.id.selectAll -> return onTextContextMenuItem(android.R.id.selectAll)
@@ -267,7 +269,7 @@ class SelectableAnnotationTextView(context: Context) : TextView(context) {
                 if (text.toString() == original && range in renderedRanges) {
                     when (item.itemId) {
                         COPY_BLOCK -> (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
-                            .setPrimaryClip(ClipData.newPlainText("E-English", original.substring(range.start, range.end)))
+                            .setPrimaryClip(ClipData.newPlainText("E-English", copyTransform?.invoke(range.start, range.end) ?: original.substring(range.start, range.end)))
                         REMOVE -> if (canAnnotate) onMark(range.start, range.end, false)
                         else -> return false
                     }

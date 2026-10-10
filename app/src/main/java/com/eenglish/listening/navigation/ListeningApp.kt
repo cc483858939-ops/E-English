@@ -1,5 +1,8 @@
 package com.eenglish.listening.navigation
 
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -41,11 +44,14 @@ fun ListeningApp(shellViewModel: ShellViewModel = viewModel(), practiceViewModel
     val entry by navController.currentBackStackEntryAsState()
     val currentRoute = entry?.destination?.route
     val activity = LocalContext.current as? Activity
+    val density = LocalDensity.current
+    val imeVisible = WindowInsets.ime.getBottom(density) > 0
     LaunchedEffect(currentRoute) {
         // The Activity remains started when navigation returns to the library.
         if (currentRoute == AppDestination.LIST.route) practiceViewModel.audio.pause()
     }
     val navigateUp: () -> Unit = {
+        practiceViewModel.flushInlineAnswers()
         if (practiceViewModel.uiState.value.batchImport?.isRunning != true) {
             val targetRoute = navController.previousBackStackEntry?.destination?.route
             // Pause before popping; both toolbar and system Back use this path.
@@ -90,7 +96,7 @@ fun ListeningApp(shellViewModel: ShellViewModel = viewModel(), practiceViewModel
             })
         }
         composable(AppDestination.PRACTICE.route) {
-            BackHandler(enabled = currentRoute == AppDestination.PRACTICE.route, onBack = navigateUp)
+            BackHandler(enabled = currentRoute == AppDestination.PRACTICE.route && !imeVisible, onBack = navigateUp)
             PracticeScreen(
                 state = practice,
                 audio = audio,
@@ -99,6 +105,9 @@ fun ListeningApp(shellViewModel: ShellViewModel = viewModel(), practiceViewModel
                 onSeekBy = practiceViewModel.audio::seekBy,
                 onSpeed = practiceViewModel.audio::setSpeed,
                 onSelect = practiceViewModel::selectAnswer,
+                onInlineEdit = practiceViewModel::editInlineAnswer,
+                onInlineCommit = practiceViewModel::flushInlineAnswer,
+                onFlushInline = practiceViewModel::flushInlineAnswers,
                 onSubmit = practiceViewModel::requestSubmit,
                 onConfirm = practiceViewModel::confirmSubmit,
                 onDismiss = practiceViewModel::dismissSubmit,
@@ -111,7 +120,7 @@ fun ListeningApp(shellViewModel: ShellViewModel = viewModel(), practiceViewModel
             )
         }
         composable(AppDestination.TRANSCRIPT.route) {
-            BackHandler(enabled = currentRoute == AppDestination.TRANSCRIPT.route, onBack = navigateUp)
+            BackHandler(enabled = currentRoute == AppDestination.TRANSCRIPT.route && !imeVisible, onBack = navigateUp)
             TranscriptScreen(
                 state = practice,
                 audio = audio,
@@ -122,6 +131,9 @@ fun ListeningApp(shellViewModel: ShellViewModel = viewModel(), practiceViewModel
                 mode = state.transcriptMode,
                 onModeChange = shellViewModel::selectTranscriptMode,
                 onSelect = practiceViewModel::selectAnswer,
+                onInlineEdit = practiceViewModel::editInlineAnswer,
+                onInlineCommit = practiceViewModel::flushInlineAnswer,
+                onFlushInline = practiceViewModel::flushInlineAnswers,
                 onBack = navigateUp,
             )
         }

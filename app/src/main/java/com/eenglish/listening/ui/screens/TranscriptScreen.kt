@@ -26,7 +26,9 @@ import com.eenglish.listening.viewmodel.TranscriptMode
 @Composable
 fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Unit, onSeek: (Long) -> Unit,
     mode: TranscriptMode, onModeChange: (TranscriptMode) -> Unit, onBack: () -> Unit,
-    onSelect: (String, String) -> Unit, onSeekBy: (Long) -> Unit = {}, onSpeed: (Float) -> Unit = {}) {
+    onSelect: (String, String) -> Unit, onSeekBy: (Long) -> Unit = {}, onSpeed: (Float) -> Unit = {},
+    onInlineEdit: (String, String) -> Unit = onSelect, onInlineCommit: (String) -> Unit = {},
+    onFlushInline: () -> Unit = {}) {
     if (state.loading) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         return
@@ -89,11 +91,11 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
         Row(Modifier.fillMaxWidth()
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
             .testTag("transcript-header"), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack) { Text(stringResource(R.string.back_to_practice)) }
+            TextButton(onClick = { onFlushInline(); onBack() }) { Text(stringResource(R.string.back_to_practice)) }
             Text(stringResource(R.string.transcript_title), style = MaterialTheme.typography.titleMedium)
         }
     }, contentWindowInsets = WindowInsets.safeDrawing) { insets ->
-        Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
+        Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets).imePadding()) {
             Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).testTag("transcript-player")) {
                 AudioControls(audio, onToggle, onSeek, compact = true, onSeekBy = onSeekBy, onSpeed = onSpeed)
             }
@@ -186,8 +188,10 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
                             onPrevious = { questionNumber = questions[index - 1].number },
                             onNext = { questionNumber = questions[index + 1].number },
                             onJump = { showJump = true }, onSelect = { onSelect(question.id, it) },
-                            inlineGroup = activeGroup, answers = state.answers, saving = state.saving || state.submitting,
-                            onGroupSelect = onSelect, onActivate = { questionNumber = it },
+                            inlineGroup = activeGroup, answers = state.answers + state.inlineDrafts,
+                            saving = state.saving || state.inlineDrafts.isNotEmpty(),
+                            onGroupSelect = onSelect, onGroupEdit = onInlineEdit,
+                            onGroupCommit = onInlineCommit, onActivate = { questionNumber = it },
                             onHeaderSize = { cardHeaderHeightPx = it },
                             onResizeStarted = {
                                 resizeReadingAnchor = transcriptScroll.value

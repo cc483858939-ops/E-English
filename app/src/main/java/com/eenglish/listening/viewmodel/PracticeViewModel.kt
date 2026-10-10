@@ -14,6 +14,8 @@ import com.eenglish.listening.data.repository.BatchImportUiState
 import com.eenglish.listening.data.repository.BatchPackImporter
 import com.eenglish.listening.data.repository.PackImportSource
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,6 +29,8 @@ data class PracticeUiState(
     val attempt: PracticeAttempt? = null,
     val history: List<PracticeAttempt> = emptyList(),
     val answers: Map<String, String> = emptyMap(),
+    /** Unsaved inline editing values; never treat these as Room-committed. */
+    val inlineDrafts: Map<String, String> = emptyMap(),
     val saving: Boolean = false,
     val submitting: Boolean = false,
     val confirmMissing: Int? = null,
@@ -47,6 +51,9 @@ class PracticeViewModel(application: Application, private val savedStateHandle: 
     // Preserve event order even for rapid selection changes; display only committed answers.
     private val commands = Channel<suspend () -> Unit>(Channel.UNLIMITED)
     private var pendingOperations = 0
+    private val inlineDebounces = mutableMapOf<String, Job>()
+    private val queuedInline = mutableMapOf<String, String>()
+    private var submitAfterSave = false
 
     init {
         viewModelScope.launch {
@@ -54,10 +61,15 @@ class PracticeViewModel(application: Application, private val savedStateHandle: 
                 try { action(); refresh() }
                 catch (cancelled: CancellationException) { throw cancelled }
                 catch (_: Exception) {
-                    mutableState.update { it.copy(error = "本地保存失败，请重试。页面只显示已保存的答案。") }
+                    submitAfterSave = false
+                    mutableState.update { it.copy(error = "本地保存失败，输入草稿仍保留。请再次编辑以重试，勿提交。") }
                 } finally {
                     pendingOperations--
                     mutableState.update { it.copy(saving = pendingOperations > 0, submitting = false) }
+                    if (pendingOperations == 0 && submitAfterSave) {
+                        submitAfterSave = false
+                        requestSubmit()
+                    }
                 }
             }
         }
@@ -94,7 +106,12 @@ class PracticeViewModel(application: Application, private val savedStateHandle: 
         savedStateHandle[SESSION_KEY] = null
         savedStateHandle[PART_KEY] = partId
         audio.pause()
-        mutableState.update { it.copy(part = null, attempt = null, answers = emptyMap(), loading = true, confirmMissing = null) }
+        inlineDebounces.values.forEach { it.cancel() }
+        inlineDebounces.clear()
+        queuedInline.clear()
+        submitAfterSave = false
+        mutableState.update { it.copy(part = null, attempt = null, answers = emptyMap(),
+            inlineDrafts = emptyMap(), loading = true, confirmMissing = null) }
         enqueue {
             val part = app.parts.loadPart(partId)
             mutableState.update { it.copy(part = part) }
@@ -138,9 +155,62 @@ class PracticeViewModel(application: Application, private val savedStateHandle: 
         if (state.submitted || state.submitting) return
         enqueue { repository.saveAnswer(session.id, questionId, optionId) }
     }
-    fun requestSubmit() {
+    /**
+     * Call on each IME edit. Edits are visible immediately as explicitly unsaved drafts.
+     * Only the existing selectAnswer -> serial Room writer commits persisted values.
+     */
+    fun editInlineAnswer(questionId: String, value: String) {
         val state = mutableState.value
-        if (state.saving || state.submitted || state.submitting || state.attempt == null) return
+        if (state.submitted || state.submitting || state.attempt == null || value.length > 512 ||
+            state.questions.none { it.id == questionId && it.isTextInput && it.answerSeparator == null }) return
+        mutableState.update { it.copy(inlineDrafts = it.inlineDrafts + (questionId to value), error = null) }
+        inlineDebounces.remove(questionId)?.cancel()
+        inlineDebounces[questionId] = viewModelScope.launch {
+            delay(400)
+            flushInlineAnswer(questionId)
+        }
+    }
+
+    /** Focus loss, navigation, and submission flush without waiting for debounce. */
+    fun flushInlineAnswer(questionId: String) {
+        inlineDebounces.remove(questionId)?.cancel()
+        val state = mutableState.value
+        val session = state.attempt?.session ?: return
+        val draft = state.inlineDrafts[questionId] ?: return
+        if (state.submitted || state.submitting) return
+        if (draft == state.answers[questionId].orEmpty() && queuedInline[questionId] == null) {
+            mutableState.update { it.copy(inlineDrafts = it.inlineDrafts - questionId) }
+            return
+        }
+        if (queuedInline[questionId] == draft) return
+        queuedInline[questionId] = draft
+        // Use the same serial command queue as selectAnswer. No separate persistence path.
+        enqueue {
+            try {
+                repository.saveAnswer(session.id, questionId, draft)
+                refresh()
+                if (mutableState.value.inlineDrafts[questionId] == draft) {
+                    mutableState.update { it.copy(inlineDrafts = it.inlineDrafts - questionId) }
+                }
+            } finally {
+                if (queuedInline[questionId] == draft) queuedInline.remove(questionId)
+            }
+        }
+    }
+
+    fun flushInlineAnswers() {
+        mutableState.value.inlineDrafts.keys.toList().forEach(::flushInlineAnswer)
+    }
+
+    fun requestSubmit() {
+        flushInlineAnswers()
+        val state = mutableState.value
+        if (state.submitted || state.submitting || state.attempt == null) return
+        if (state.saving || state.inlineDrafts.isNotEmpty()) {
+            // Wait for all Room commits before calculating missing answers / grading.
+            if (state.saving) submitAfterSave = true
+            return
+        }
         val missing = Grader.missingCount(state.questions, state.answers)
         if (missing > 0) mutableState.update { it.copy(confirmMissing = missing) } else confirmSubmit()
     }
@@ -158,6 +228,10 @@ class PracticeViewModel(application: Application, private val savedStateHandle: 
         if (state.saving || !state.submitted) return
         enqueue {
             savedStateHandle[SESSION_KEY] = repository.startNew(part)
+            inlineDebounces.values.forEach(Job::cancel)
+            inlineDebounces.clear()
+            queuedInline.clear()
+            mutableState.update { it.copy(inlineDrafts = emptyMap()) }
             audio.pause()
             audio.seekTo(0)
         }
@@ -166,6 +240,11 @@ class PracticeViewModel(application: Application, private val savedStateHandle: 
         if (mutableState.value.saving) return
         val attempt = mutableState.value.history.firstOrNull { it.session.id == sessionId } ?: return
         if (attempt.session.partId != mutableState.value.part?.id) return
+        inlineDebounces.values.forEach(Job::cancel)
+        inlineDebounces.clear()
+        queuedInline.clear()
+        submitAfterSave = false
+        mutableState.update { it.copy(inlineDrafts = emptyMap()) }
         savedStateHandle[SESSION_KEY] = sessionId
         reconcile(mutableState.value.history)
     }

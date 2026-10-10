@@ -33,7 +33,9 @@ fun ResizableQuestionPanel(question: Question, selected: String?, expanded: Bool
     onResizeStarted: () -> Unit, onResizeDelta: (Float) -> Unit, onResizeStopped: () -> Unit,
     onSetRatio: (Float) -> Unit, inlineGroup: GapFillGroup? = null,
     answers: Map<String, String> = emptyMap(), saving: Boolean = false,
-    onGroupSelect: (String, String) -> Unit = { _, _ -> }, onActivate: (Int) -> Unit = {}) {
+    onGroupSelect: (String, String) -> Unit = { _, _ -> },
+    onGroupEdit: (String, String) -> Unit = onGroupSelect,
+    onGroupCommit: (String) -> Unit = {}, onActivate: (Int) -> Unit = {}) {
     val navigation: @Composable () -> Unit = {
         Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             TextButton(onClick = onPrevious, enabled = hasPrevious,
@@ -84,8 +86,9 @@ fun ResizableQuestionPanel(question: Question, selected: String?, expanded: Bool
                     if (!fixedNavigation) navigation()
                     if (submitted) Text("已提交 · 只读", style = MaterialTheme.typography.labelMedium)
                     if (inlineGroup != null) {
-                        InlineGapFillGroup(inlineGroup, answers, editable && !saving, submitted, saving,
-                            activeQuestionNumber = question.number, onActivate = onActivate, onSelect = onGroupSelect)
+                        InlineGapFillGroup(inlineGroup, answers, editable, submitted, saving,
+                            activeQuestionNumber = question.number, onActivate = onActivate,
+                            onSelect = onGroupSelect, onEdit = onGroupEdit, onCommit = onGroupCommit)
                     } else {
                         QuestionCard(question, selected, editable, showResult = submitted, onSelect = onSelect)
                     }

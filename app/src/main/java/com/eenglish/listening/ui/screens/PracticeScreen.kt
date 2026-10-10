@@ -25,7 +25,9 @@ import java.util.Date
 fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Unit, onSeek: (Long) -> Unit,
     onSelect: (String, String) -> Unit, onBack: () -> Unit, onViewTranscript: () -> Unit,
     onSubmit: () -> Unit, onConfirm: () -> Unit, onDismiss: () -> Unit, onNew: () -> Unit, onHistory: (String) -> Unit,
-    onSeekBy: (Long) -> Unit = {}, onSpeed: (Float) -> Unit = {}) {
+    onSeekBy: (Long) -> Unit = {}, onSpeed: (Float) -> Unit = {},
+    onInlineEdit: (String, String) -> Unit = onSelect,
+    onInlineCommit: (String) -> Unit = {}, onFlushInline: () -> Unit = {}) {
     val listState = rememberLazyListState()
     val displayItems = remember(state.questions) { GapFillGroupParser.parse(state.questions) }
     val resumeDraft = state.submitted && state.history.firstOrNull { it.session.partId == state.part?.id }
@@ -40,9 +42,9 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
         Row(Modifier.fillMaxWidth()
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
             .testTag("practice-header"), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack) { Text("返回") }
+            TextButton(onClick = { onFlushInline(); onBack() }) { Text("返回") }
             Text("听力答题", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-            TextButton(onClick = onViewTranscript, enabled = state.part != null) { Text("查看原文") }
+            TextButton(onClick = { onFlushInline(); onViewTranscript() }, enabled = state.part != null) { Text("查看原文") }
         }
     }, bottomBar = {
         Button(onClick = if (state.submitted) onNew else onSubmit,
@@ -60,7 +62,7 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
                     AudioControls(audio, onToggle, onSeek, compact = true, onSeekBy = onSeekBy, onSpeed = onSpeed)
                 }
             }
-            LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("practice-list"), state = listState, contentPadding = PaddingValues(20.dp)) {
+            LazyColumn(Modifier.weight(1f).fillMaxWidth().imePadding().testTag("practice-list"), state = listState, contentPadding = PaddingValues(20.dp)) {
                 val part = state.part
                 if (part != null) {
                     item {
@@ -93,10 +95,11 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
                                     showResult = state.submitted, onSelect = { onSelect(question.id, it) })
                             }
                             is QuestionDisplayItem.InlineGroup -> InlineGapFillGroup(
-                                entry.group, state.answers,
-                                editable = !state.submitted && !state.submitting && !state.saving && state.attempt != null,
-                                submitted = state.submitted, saving = state.saving || state.submitting,
-                                onSelect = onSelect)
+                                entry.group, state.answers + state.inlineDrafts,
+                                editable = !state.submitted && !state.submitting && state.attempt != null,
+                                submitted = state.submitted,
+                                saving = state.saving || state.inlineDrafts.isNotEmpty(),
+                                onSelect = onSelect, onEdit = onInlineEdit, onCommit = onInlineCommit)
                         }
                     }
                     item {

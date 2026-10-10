@@ -1,27 +1,33 @@
 package com.eenglish.listening
 
+import android.widget.EditText
 import androidx.compose.runtime.*
-import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
-import com.eenglish.listening.domain.gapfill.GapFillGroupParser
-import com.eenglish.listening.domain.gapfill.QuestionDisplayItem
+import androidx.test.espresso.Espresso.onView
+import androidx.test.espresso.action.ViewActions.*
+import androidx.test.espresso.assertion.ViewAssertions.*
+import androidx.test.espresso.matcher.ViewMatchers.*
+import org.hamcrest.CoreMatchers.equalTo
+import org.junit.Assert.*
+import com.eenglish.listening.domain.gapfill.*
 import com.eenglish.listening.domain.model.*
 import com.eenglish.listening.ui.components.InlineGapFillGroup
 import com.eenglish.listening.ui.theme.ListeningTheme
-import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
 
+/** Native EditText instrumentation: actual clicks and text input, not a semantics callback. */
 class InlineGapFillUiTest {
     @get:Rule val compose = createComposeRule()
 
-    @Test fun summaryOnceAndIndependentAnswersWithCancelAndClear() {
+    @Test fun exactlyFiveInlineEditorsAcceptTypingWithoutDialog() {
         val prompt = """
 Questions 26–30
 Complete the summary below.
 Write NO MORE THAN THREE WORDS.
-The warehouse received 26 _____ boxes.
+The warehouse received 26
+ _____ boxes.
 Inspectors checked 27 ______ seals and recorded 28 ______ readings.
 The clerk filed 29 ______ notes and printed 30 ______ tags.
         """.trimIndent()
@@ -29,36 +35,38 @@ The clerk filed 29 ______ notes and printed 30 ______ tags.
             Question("ui-q$n", n, QuestionType.TEXT_INPUT, prompt, emptyList(), "fixture",
                 wordLimit = WordLimit(3, 0))
         }
-        val parsed = GapFillGroupParser.parse(questions)
-        assertEquals(1, parsed.size)
-        val group = (parsed.single() as QuestionDisplayItem.InlineGroup).group
-        val answers = mutableStateMapOf<String, String>()
+        val group = (GapFillGroupParser.parse(questions).single() as QuestionDisplayItem.InlineGroup).group
+        val drafts = mutableStateMapOf<String, String>()
+        var submitted by mutableStateOf(false)
         compose.setContent {
             ListeningTheme {
-                InlineGapFillGroup(group, answers, editable = true, submitted = false, saving = false,
-                    onSelect = { id, value -> answers[id] = value })
+                InlineGapFillGroup(group, drafts, editable = !submitted, submitted = submitted,
+                    saving = false, onSelect = { id, value -> drafts[id] = value },
+                    onEdit = { id, value -> drafts[id] = value })
             }
         }
         compose.onAllNodesWithTag("inline-summary-26").assertCountEquals(1)
-        fun open(n: Int) {
-            val actions = compose.onNodeWithTag("inline-summary-26").fetchSemanticsNode()
-                .config[SemanticsActions.CustomActions]
-            compose.runOnIdle { assertTrue(actions.single { it.label == "填写 Q$n" }.action()) }
+        (26..30).forEach { n ->
+            onView(withTagValue(equalTo("inline-input-$n"))).check(matches(isDisplayed()))
         }
-        open(26)
-        compose.onNodeWithTag("gap-input-26").performTextInput("three subjects")
-        compose.onNodeWithTag("gap-cancel-26").performClick()
-        compose.runOnIdle { assertTrue(answers.isEmpty()) }
-        open(26)
-        compose.onNodeWithTag("gap-input-26").performTextInput("three subjects")
-        compose.onNodeWithTag("gap-save-26").performClick()
+        onView(withTagValue(equalTo("inline-input-26")))
+            .perform(click(), replaceText("two boxes"))
+            .check(matches(hasFocus()))
+        onView(withTagValue(equalTo("inline-input-27")))
+            .perform(click(), replaceText("three"))
+            .check(matches(hasFocus()))
+        onView(withTagValue(equalTo("inline-input-28")))
+            .perform(click(), replaceText("blue"), closeSoftKeyboard())
         compose.runOnIdle {
-            assertEquals("three subjects", answers["ui-q26"])
-            assertFalse(answers.containsKey("ui-q27"))
+            assertEquals("two boxes", drafts["ui-q26"])
+            assertEquals("three", drafts["ui-q27"])
+            assertEquals("blue", drafts["ui-q28"])
+            assertFalse(drafts.containsKey("ui-q29"))
         }
-        open(26)
-        compose.onNodeWithTag("gap-clear-26").performClick()
-        compose.runOnIdle { assertEquals("", answers["ui-q26"]) }
+        onView(withText("Q26 · 填写答案")).check(doesNotExist())
+        compose.runOnIdle { submitted = true }
+        onView(withTagValue(equalTo("inline-input-26"))).check(matches(isNotEnabled()))
+        onView(withTagValue(equalTo("inline-input-28"))).check(matches(withText("blue")))
         compose.onAllNodesWithTag("inline-summary-26").assertCountEquals(1)
     }
 }
