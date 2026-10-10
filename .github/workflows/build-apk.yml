@@ -35,7 +35,7 @@ jobs:
       - name: Test and build Debug APK
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon testDebugUnitTest assembleDebug
+          ./gradlew --no-daemon testDebugUnitTest assembleDebug assembleDebugAndroidTest
 
       - name: Upload APK
         if: github.ref == 'refs/heads/main'

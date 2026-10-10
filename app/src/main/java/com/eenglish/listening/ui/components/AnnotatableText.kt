@@ -84,7 +84,12 @@ fun AnnotatableText(document: AnnotationDocument, modifier: Modifier = Modifier,
             if (view.currentTextColor != color.toArgb()) view.setTextColor(color.toArgb())
             view.canAnnotate = annotations.partId != null
             view.onMark = { start, end, add ->
-                annotations.partId?.let { annotations.onChange((activeDocument ?: document).selection(it, start, end), add) }
+                annotations.partId?.let { partId ->
+                    // On removal, include every original question key: old highlights may have
+                    // been saved under any member before this display-layer grouping existed.
+                    val documents = if (add) listOf(activeDocument ?: document) else listOf(document) + otherDocuments
+                    annotations.onChange(documents.flatMap { it.selection(partId, start, end) }, add)
+                }
             }
             view.onTap = onTap
             view.onGapClick = onGapClick

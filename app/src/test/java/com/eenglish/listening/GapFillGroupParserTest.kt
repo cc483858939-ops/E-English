@@ -59,7 +59,9 @@ and then work on 30 ______ in depth.
     }
 
     @Test fun noCrossPartOrNonConsecutiveOrDuplicateGroup() {
-        val unrelated = questions().map { it.copy(prompt = summary.replace("Modular Courses", "Different")) }
+        val unrelated = questions().mapIndexed { index, q ->
+            q.copy(prompt = if (index % 2 == 0) summary.replace("Modular Courses", "Different") else summary)
+        }
         assertEquals(5, GapFillGroupParser.parse(unrelated).size)
         assertEquals(5, GapFillGroupParser.parse(questions().toMutableList().apply {
             this[2] = this[2].copy(number = 35)
