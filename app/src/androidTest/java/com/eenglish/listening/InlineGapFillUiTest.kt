@@ -1,7 +1,7 @@
 package com.eenglish.listening
 
 import androidx.compose.runtime.*
-import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import com.eenglish.listening.domain.gapfill.GapFillGroupParser
@@ -42,7 +42,7 @@ Then study 29 ______ and finish 30 ______.
         compose.onAllNodesWithTag("inline-summary-26").assertCountEquals(1)
         fun open(n: Int) {
             val actions = compose.onNodeWithTag("inline-summary-26").fetchSemanticsNode()
-                .config[SemanticsProperties.CustomActions]
+                .config[SemanticsActions.CustomActions]
             compose.runOnIdle { assertTrue(actions.single { it.label == "填写 Q$n" }.action()) }
         }
         open(26)

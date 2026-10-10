@@ -58,10 +58,17 @@ fun GapFillAnswerDialog(question: Question, savedAnswer: String?, editable: Bool
         },
         dismissButton = {
             Row {
-                if (editable && !savedAnswer.isNullOrBlank()) {
-                    TextButton(onClick = { onSave(""); onDismiss() }, enabled = !saving,
-                        modifier = Modifier.testTag("gap-clear-${question.number}")) {
-                        Text("清空已存答案")
+                if (editable) {
+                    if (!savedAnswer.isNullOrBlank()) {
+                        TextButton(onClick = { onSave(""); onDismiss() }, enabled = !saving,
+                            modifier = Modifier.testTag("gap-clear-${question.number}")) {
+                            Text("清空已存答案")
+                        }
+                    } else {
+                        TextButton(onClick = { draft = "" }, enabled = !saving && draft.isNotEmpty(),
+                            modifier = Modifier.testTag("gap-clear-draft-${question.number}")) {
+                            Text("清空草稿")
+                        }
                     }
                 }
                 if (editable) TextButton(onClick = onDismiss, enabled = !saving,
