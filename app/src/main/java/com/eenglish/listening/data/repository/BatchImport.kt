@@ -22,7 +22,7 @@ enum class ImportFailure(val label: String) {
 }
 
 class PackImportException(val reason: ImportFailure) : IllegalArgumentException(reason.label)
-enum class ImportOutcome { INSTALLED, ALREADY_INSTALLED, FAILED }
+enum class ImportOutcome { INSTALLED, UPDATED, ALREADY_INSTALLED, FAILED }
 
 data class PackImportResult(
     val fileName: String,
@@ -30,6 +30,7 @@ data class PackImportResult(
     val outcome: ImportOutcome,
     val addedParts: Int = 0,
     val existingParts: Int = 0,
+    val updatedLayoutParts: Int = 0,
     val failure: ImportFailure? = null,
 )
 
@@ -42,10 +43,14 @@ data class BatchImportUiState(
     val isRunning: Boolean = true,
 ) {
     val processed get() = results.size
-    val succeeded get() = results.count { it.outcome == ImportOutcome.INSTALLED }
+    val succeeded get() = results.count {
+        it.outcome == ImportOutcome.INSTALLED || it.outcome == ImportOutcome.UPDATED
+    }
+    val updated get() = results.count { it.outcome == ImportOutcome.UPDATED }
     val alreadyInstalled get() = results.count { it.outcome == ImportOutcome.ALREADY_INSTALLED }
     val failed get() = results.count { it.outcome == ImportOutcome.FAILED }
     val addedParts get() = results.sumOf { it.addedParts }
+    val updatedLayoutParts get() = results.sumOf { it.updatedLayoutParts }
     val existingParts get() = results.sumOf { it.existingParts }
 }
 
@@ -71,7 +76,7 @@ class BatchPackImporter(
             state = state.copy(currentFile = name, currentBook = null, stage = ImportStage.READING)
             onState(state)
             val result = try {
-                val before = listParts().map { it.id }.toSet()
+                val before = listParts().associateBy { it.id }
                 val index = source.open().use { input ->
                     install(input) { stage, book ->
                         state = state.copy(stage = stage, currentBook = book ?: state.currentBook)
@@ -80,12 +85,22 @@ class BatchPackImporter(
                 }
                 val after = listParts()
                 onParts(after)
+                val afterById = after.associateBy { it.id }
                 val ids = index.parts.map { it.id }.toSet()
-                val added = after.count { it.id in ids && it.id !in before }
+                val added = ids.count { it !in before && it in afterById }
                 val existing = ids.count { it in before }
+                val updatedLayouts = index.parts.count { summary ->
+                    val old = before[summary.id]
+                    val current = afterById[summary.id]
+                    old != null && current != null && old.layoutSha256 != current.layoutSha256
+                }
+                val outcome = when {
+                    added > 0 -> ImportOutcome.INSTALLED
+                    updatedLayouts > 0 -> ImportOutcome.UPDATED
+                    else -> ImportOutcome.ALREADY_INSTALLED
+                }
                 PackImportResult(name, index.book,
-                    if (added == 0) ImportOutcome.ALREADY_INSTALLED else ImportOutcome.INSTALLED,
-                    added, existing)
+                    outcome, added, existing, updatedLayouts)
             } catch (cancelled: CancellationException) { throw cancelled }
               catch (error: Exception) {
                 PackImportResult(name, state.currentBook, ImportOutcome.FAILED, failure = classifyFailure(error))

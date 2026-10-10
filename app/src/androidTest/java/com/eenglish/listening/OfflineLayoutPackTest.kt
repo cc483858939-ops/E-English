@@ -6,7 +6,10 @@ import com.eenglish.listening.data.assets.PartCodec
 import com.eenglish.listening.data.repository.OfflinePackImporter
 import com.eenglish.listening.data.repository.PartRepository
 import com.eenglish.listening.data.repository.ImportFailure
+import com.eenglish.listening.data.repository.BatchPackImporter
+import com.eenglish.listening.data.repository.ImportOutcome
 import com.eenglish.listening.data.repository.PackImportException
+import com.eenglish.listening.data.repository.PackImportSource
 import com.eenglish.listening.domain.annotation.contentHash
 import com.eenglish.listening.domain.model.*
 import java.io.ByteArrayInputStream
@@ -127,6 +130,41 @@ class OfflineLayoutPackTest {
                 fail("Undeclared ZIP entry must be rejected")
             } catch (_: IllegalArgumentException) { }
             assertEquals(beforeConflict, importer.installed())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test fun batchReimportReportsLayoutUpdateAndIdenticalRepeatAsAlreadyInstalled() = runBlocking {
+        val cache = InstrumentationRegistry.getInstrumentation().targetContext.cacheDir
+        val root = File(cache, "offline-layout-batch-${UUID.randomUUID()}")
+        assertTrue(root.mkdir())
+        try {
+            val importer = OfflinePackImporter(root)
+            val original = part()
+            val batch = BatchPackImporter(
+                listParts = {
+                    importer.installed().values.flatMap { folder ->
+                        json.decodeFromString<BookIndex>(File(root, "$folder/index.json").readText()).parts
+                    }
+                },
+                install = { input, progress -> importer.install(input, onProgress = progress) },
+            )
+            fun source(name: String, withLayout: Boolean) = PackImportSource(
+                name = { name },
+                open = { ByteArrayInputStream(pack(original, withLayout)) },
+            )
+
+            val initial = batch.run(listOf(source("legacy.eelpack", false)), {}, {})
+            assertEquals(ImportOutcome.INSTALLED, initial.results.single().outcome)
+            val update = batch.run(listOf(source("with-layout.eelpack", true)), {}, {})
+            assertEquals(ImportOutcome.UPDATED, update.results.single().outcome)
+            assertEquals(1, update.updatedLayoutParts)
+            assertEquals(1, update.succeeded)
+
+            val repeated = batch.run(listOf(source("same-layout.eelpack", true)), {}, {})
+            assertEquals(ImportOutcome.ALREADY_INSTALLED, repeated.results.single().outcome)
+            assertEquals(0, repeated.updatedLayoutParts)
         } finally {
             root.deleteRecursively()
         }

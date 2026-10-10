@@ -10,7 +10,33 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class BatchImportTest {
-    private fun summary(book: Int) = PartSummary("cambridge-$book-test-1-part-1", book, 1, 1, "Synthetic", 10, 1, 10)
+    private fun summary(book: Int, layoutSha256: String? = null) =
+        PartSummary("cambridge-$book-test-1-part-1", book, 1, 1, "Synthetic", 10, 1, 10,
+            layoutSha256 = layoutSha256)
+
+    @Test fun sameBookLayoutOnlyReimportIsReportedAsUpdated() = runBlocking {
+        val parts = mutableListOf<PartSummary>()
+        val runner = BatchPackImporter({ parts.toList() }, { input, _ ->
+            val schemaVersion = input.read()
+            val item = summary(5, if (schemaVersion == 2) "a".repeat(64) else null)
+            if (parts.isEmpty()) parts += item else parts[0] = item
+            BookIndex(schemaVersion, 5, listOf(item))
+        })
+        val sources = listOf(1, 2, 2).mapIndexed { index, version ->
+            PackImportSource({ "version-" + version + "-" + (index + 1) + ".eelpack" },
+                { ByteArrayInputStream(byteArrayOf(version.toByte())) })
+        }
+
+        val result = runner.run(sources, {}, {})
+
+        assertEquals(listOf(ImportOutcome.INSTALLED, ImportOutcome.UPDATED,
+            ImportOutcome.ALREADY_INSTALLED), result.results.map { it.outcome })
+        assertEquals(2, result.succeeded)
+        assertEquals(1, result.updated)
+        assertEquals(1, result.updatedLayoutParts)
+        assertEquals(1, result.alreadyInstalled)
+        assertEquals(0, result.failed)
+    }
 
     @Test fun serialQueueClosesEachStreamAndCountsActualNewAndExistingParts() = runBlocking {
         val parts = mutableListOf<PartSummary>()

@@ -31,14 +31,20 @@ fun BatchImportDialog(state: BatchImportUiState, onDone: () -> Unit) {
                         Text(listOfNotNull(state.currentBook?.let { "Cambridge $it" }, state.stage.label).joinToString(" · "))
                     }
                 }
-                Text("成功：${state.succeeded} · 已存在：${state.alreadyInstalled} · 失败：${state.failed}")
-                Text("新增 Part：${state.addedParts} · 已存在 Part：${state.existingParts}")
+                Text("成功：" + state.succeeded + " · 已更新：" + state.updated + " · 已存在：" +
+                    state.alreadyInstalled + " · 失败：" + state.failed)
+                Text("新增 Part：" + state.addedParts + " · 更新布局：" + state.updatedLayoutParts +
+                    " 个 Part · 已存在 Part：" + state.existingParts)
                 state.results.forEach { result ->
                     HorizontalDivider()
                     Text(listOfNotNull(result.book?.let { "Cambridge $it" }, result.fileName).joinToString(" · "),
                         style = MaterialTheme.typography.bodyMedium)
                     Text(when (result.outcome) {
-                        ImportOutcome.INSTALLED -> "已导入 · 新增 ${result.addedParts} 个 Part，已存在 ${result.existingParts} 个 Part"
+                        ImportOutcome.INSTALLED -> "已导入 · 新增 " + result.addedParts +
+                            " 个 Part，更新布局 " + result.updatedLayoutParts + " 个 Part，已存在 " +
+                            result.existingParts + " 个 Part"
+                        ImportOutcome.UPDATED -> "已更新布局 · 更新 " + result.updatedLayoutParts +
+                            " 个 Part，已存在 " + result.existingParts + " 个 Part"
                         ImportOutcome.ALREADY_INSTALLED -> "已存在 · ${result.existingParts} 个 Part"
                         ImportOutcome.FAILED -> result.failure?.label ?: "导入失败"
                     }, color = if (result.outcome == ImportOutcome.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)

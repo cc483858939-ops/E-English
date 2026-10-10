@@ -154,7 +154,9 @@ class PracticeViewModel(application: Application, private val savedStateHandle: 
         val batch = mutableState.value.batchImport ?: return
         if (batch.isRunning) return
         mutableState.update { it.copy(batchImport = null,
-            importMessage = "导入完成：新增 ${batch.addedParts} 个 Part，已存在 ${batch.existingParts} 个 Part，失败 ${batch.failed} 个资料包") }
+            importMessage = "导入完成：新增 " + batch.addedParts + " 个 Part，更新布局 " +
+                batch.updatedLayoutParts + " 个 Part，已存在 " + batch.existingParts +
+                " 个 Part，失败 " + batch.failed + " 个资料包") }
     }
     fun selectAnswer(questionId: String, optionId: String) {
         val state = mutableState.value

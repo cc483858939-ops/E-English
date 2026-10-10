@@ -58,7 +58,7 @@ class BatchImportUiTest {
             proceed.complete(Unit)
             compose.waitUntil(10000) { ui.value.batchImport?.isRunning == false }
             compose.onNodeWithText("导入完成").assertIsDisplayed()
-            compose.onNodeWithText("成功：3 · 已存在：0 · 失败：0").assertIsDisplayed()
+            compose.onNodeWithText("成功：3 · 已更新：0 · 已存在：0 · 失败：0").assertIsDisplayed()
             compose.onNodeWithTag("batch-done").performClick()
             compose.onNodeWithTag("book-16").performScrollTo().assertIsDisplayed()
             compose.runOnIdle { assertEquals(3,ui.value.parts.size) }
@@ -69,13 +69,18 @@ class BatchImportUiTest {
         val batch = mutableStateOf<BatchImportUiState?>(BatchImportUiState(3,results=listOf(
             PackImportResult("first.eelpack",14,ImportOutcome.INSTALLED,addedParts=16),
             PackImportResult("duplicate.eelpack",15,ImportOutcome.ALREADY_INSTALLED,existingParts=16),
+            PackImportResult("layout-update.eelpack",16,ImportOutcome.UPDATED,
+                existingParts=8,updatedLayoutParts=1),
             PackImportResult("broken.eelpack",outcome=ImportOutcome.FAILED,failure=ImportFailure.DAMAGED),
         ),isRunning=false))
         compose.setContent { ListeningTheme { batch.value?.let { BatchImportDialog(it) { batch.value = null } } } }
-        compose.onNodeWithText("成功：1 · 已存在：1 · 失败：1").assertIsDisplayed()
-        compose.onNodeWithText("新增 Part：16 · 已存在 Part：16").assertIsDisplayed()
+        compose.onNodeWithText("成功：2 · 已更新：1 · 已存在：1 · 失败：1").assertIsDisplayed()
+        compose.onNodeWithText("新增 Part：16 · 更新布局：1 个 Part · 已存在 Part：24").assertIsDisplayed()
         compose.onNodeWithTag("batch-import").performScrollToNode(hasText("文件损坏或不完整"))
         compose.onNodeWithText("文件损坏或不完整").assertIsDisplayed()
+        compose.onNodeWithTag("batch-import").performScrollToNode(
+            hasText("已更新布局 · 更新 1 个 Part", substring = true))
+        compose.onNodeWithText("已更新布局 · 更新 1 个 Part，已存在 8 个 Part").assertIsDisplayed()
         compose.onNodeWithTag("batch-done").performClick()
         compose.onNodeWithTag("batch-import").assertDoesNotExist()
     }
