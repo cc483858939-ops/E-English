@@ -98,7 +98,7 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
                                 entry.group, state.answers + state.inlineDrafts,
                                 editable = !state.submitted && !state.submitting && state.attempt != null,
                                 submitted = state.submitted,
-                                saving = state.saving || state.inlineDrafts.isNotEmpty(),
+                                saving = state.saving, dirty = state.inlineDrafts.isNotEmpty(),
                                 onSelect = onSelect, onEdit = onInlineEdit, onCommit = onInlineCommit)
                         }
                     }

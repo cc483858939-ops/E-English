@@ -1,6 +1,12 @@
 package com.eenglish.listening
 
 import android.widget.EditText
+import android.widget.TextView
+import android.text.Spanned
+import android.text.style.ReplacementSpan
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import com.eenglish.listening.ui.components.NativeInlineGapFillView
 import androidx.compose.runtime.*
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -49,9 +55,26 @@ The clerk filed 29 ______ notes and printed 30 ______ tags.
         (26..30).forEach { n ->
             onView(withTagValue(equalTo("inline-input-$n"))).check(matches(isDisplayed()))
         }
+        onView(isAssignableFrom(NativeInlineGapFillView::class.java)).check { view, error ->
+            if (error != null) throw error
+            val native = view as NativeInlineGapFillView
+            val text = (native.getChildAt(0) as TextView).text as Spanned
+            val anchors = text.getSpans(0, text.length, ReplacementSpan::class.java)
+            assertEquals("one native text anchor per question", 5, anchors.size)
+            assertTrue("no anchor may cross a newline",
+                anchors.all { text.getSpanEnd(it) - text.getSpanStart(it) == 1 })
+        }
         onView(withTagValue(equalTo("inline-input-26")))
             .perform(click(), replaceText("two boxes"))
             .check(matches(hasFocus()))
+        onView(withTagValue(equalTo("inline-input-26"))).check { view, error ->
+            if (error != null) throw error
+            val editor = view as EditText
+            assertEquals(editor.text.length, editor.selectionStart)
+            assertTrue("IME input connection should be active",
+                (view.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+                    as android.view.inputmethod.InputMethodManager).isActive(editor))
+        }
         onView(withTagValue(equalTo("inline-input-27")))
             .perform(click(), replaceText("three"))
             .check(matches(hasFocus()))
@@ -65,7 +88,7 @@ The clerk filed 29 ______ notes and printed 30 ______ tags.
         }
         onView(withText("Q26 · 填写答案")).check(doesNotExist())
         compose.runOnIdle { submitted = true }
-        onView(withTagValue(equalTo("inline-input-26"))).check(matches(isNotEnabled()))
+        onView(withTagValue(equalTo("inline-input-26"))).check(matches(androidx.test.espresso.matcher.ViewMatchers.isNotEnabled()))
         onView(withTagValue(equalTo("inline-input-28"))).check(matches(withText("blue")))
         compose.onAllNodesWithTag("inline-summary-26").assertCountEquals(1)
     }

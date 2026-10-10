@@ -33,6 +33,7 @@ fun ResizableQuestionPanel(question: Question, selected: String?, expanded: Bool
     onResizeStarted: () -> Unit, onResizeDelta: (Float) -> Unit, onResizeStopped: () -> Unit,
     onSetRatio: (Float) -> Unit, inlineGroup: GapFillGroup? = null,
     answers: Map<String, String> = emptyMap(), saving: Boolean = false,
+    dirty: Boolean = false,
     onGroupSelect: (String, String) -> Unit = { _, _ -> },
     onGroupEdit: (String, String) -> Unit = onGroupSelect,
     onGroupCommit: (String) -> Unit = {}, onActivate: (Int) -> Unit = {}) {
@@ -88,7 +89,8 @@ fun ResizableQuestionPanel(question: Question, selected: String?, expanded: Bool
                     if (inlineGroup != null) {
                         InlineGapFillGroup(inlineGroup, answers, editable, submitted, saving,
                             activeQuestionNumber = question.number, onActivate = onActivate,
-                            onSelect = onGroupSelect, onEdit = onGroupEdit, onCommit = onGroupCommit)
+                            onSelect = onGroupSelect, onEdit = onGroupEdit,
+                            onCommit = onGroupCommit, dirty = dirty)
                     } else {
                         QuestionCard(question, selected, editable, showResult = submitted, onSelect = onSelect)
                     }

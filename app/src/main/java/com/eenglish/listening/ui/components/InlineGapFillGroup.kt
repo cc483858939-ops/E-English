@@ -20,7 +20,8 @@ fun InlineGapFillGroup(group: GapFillGroup, answers: Map<String, String>,
     editable: Boolean, submitted: Boolean, saving: Boolean,
     activeQuestionNumber: Int? = null, onActivate: (Int) -> Unit = {},
     onSelect: (String, String) -> Unit,
-    onEdit: (String, String) -> Unit = onSelect, onCommit: (String) -> Unit = {}) {
+    onEdit: (String, String) -> Unit = onSelect, onCommit: (String) -> Unit = {},
+    dirty: Boolean = false) {
     val annotations = LocalAnnotations.current
     val projection = remember(group) { InlinePromptProjection.of(group) }
     val documents = remember(group) {
@@ -52,8 +53,9 @@ fun InlineGapFillGroup(group: GapFillGroup, answers: Map<String, String>,
                     submitted = submitted, incorrect = incorrect)
             }
         )
-        if (saving && editable) {
-            Text("正在保存答案…", style = MaterialTheme.typography.labelSmall,
+        if (dirty && editable) {
+            Text(if (saving) "正在保存答案…" else "草稿尚未保存",
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (submitted) {

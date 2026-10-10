@@ -189,7 +189,7 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
                             onNext = { questionNumber = questions[index + 1].number },
                             onJump = { showJump = true }, onSelect = { onSelect(question.id, it) },
                             inlineGroup = activeGroup, answers = state.answers + state.inlineDrafts,
-                            saving = state.saving || state.inlineDrafts.isNotEmpty(),
+                            saving = state.saving, dirty = state.inlineDrafts.isNotEmpty(),
                             onGroupSelect = onSelect, onGroupEdit = onInlineEdit,
                             onGroupCommit = onInlineCommit, onActivate = { questionNumber = it },
                             onHeaderSize = { cardHeaderHeightPx = it },
