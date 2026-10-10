@@ -65,7 +65,7 @@ The clerk filed 29 ______ notes and printed 30 ______ tags.
                 anchors.all { text.getSpanEnd(it) - text.getSpanStart(it) == 1 })
         }
         onView(withTagValue(equalTo("inline-input-26")))
-            .perform(click(), replaceText("two boxes"))
+            .perform(click(), typeText("two boxes"))
             .check(matches(hasFocus()))
         onView(withTagValue(equalTo("inline-input-26"))).check { view, error ->
             if (error != null) throw error
@@ -76,10 +76,10 @@ The clerk filed 29 ______ notes and printed 30 ______ tags.
                     as android.view.inputmethod.InputMethodManager).isActive(editor))
         }
         onView(withTagValue(equalTo("inline-input-27")))
-            .perform(click(), replaceText("three"))
+            .perform(click(), typeText("three"))
             .check(matches(hasFocus()))
         onView(withTagValue(equalTo("inline-input-28")))
-            .perform(click(), replaceText("blue"), closeSoftKeyboard())
+            .perform(click(), typeText("blue"), closeSoftKeyboard())
         compose.runOnIdle {
             assertEquals("two boxes", drafts["ui-q26"])
             assertEquals("three", drafts["ui-q27"])

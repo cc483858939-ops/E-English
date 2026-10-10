@@ -43,16 +43,19 @@ fun InlineGapFillGroup(group: GapFillGroup, answers: Map<String, String>,
     val last = group.questions.last().number
     Column(Modifier.fillMaxWidth().padding(vertical = 12.dp)
         .testTag("inline-group-$first-$last")) {
-        AndroidView(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
-                .testTag("inline-summary-$first"),
-            factory = { context -> NativeInlineGapFillView(context) },
-            update = { view ->
-                view.render(group, projection, answers, editable, activeQuestionNumber, highlights,
-                    annotations, fontPx, linePx, onActivate, onEdit, onCommit,
-                    submitted = submitted, incorrect = incorrect)
-            }
-        )
+        // A different Room attempt must never inherit a focused editor or stale IME text.
+        key(LocalAnswerSession.current, group.questions.first().id) {
+            AndroidView(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                    .testTag("inline-summary-$first"),
+                factory = { context -> NativeInlineGapFillView(context) },
+                update = { view ->
+                    view.render(group, projection, answers, editable, activeQuestionNumber, highlights,
+                        annotations, fontPx, linePx, onActivate, onEdit, onCommit,
+                        submitted = submitted, incorrect = incorrect)
+                }
+            )
+        }
         if (dirty && editable) {
             Text(if (saving) "正在保存答案…" else "草稿尚未保存",
                 style = MaterialTheme.typography.labelSmall,

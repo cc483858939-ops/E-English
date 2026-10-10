@@ -185,7 +185,8 @@ class NativeInlineGapFillView(context: Context) : FrameLayout(context) {
             }
         }
         textView.setTextSize(TypedValue.COMPLEX_UNIT_PX, fontPx)
-        if (linePx > 0) TextViewCompat.setLineHeight(textView, maxOf(linePx, boxHeight))
+        // Keep normal prose compact; GapAnchorSpan expands ONLY the lines that contain editors.
+        if (linePx > 0) TextViewCompat.setLineHeight(textView, linePx)
         textView.setTextColor(0xFF22222A.toInt())
         textView.render(display.text, display.visibleHighlights(ranges))
         val spannable = textView.text as Spannable
