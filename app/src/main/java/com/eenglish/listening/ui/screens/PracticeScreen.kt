@@ -16,6 +16,8 @@ import com.eenglish.listening.viewmodel.PracticeUiState
 import com.eenglish.listening.domain.grading.Grade
 import com.eenglish.listening.domain.grading.Grader
 import com.eenglish.listening.domain.model.SessionStatus
+import com.eenglish.listening.domain.gapfill.GapFillGroupParser
+import com.eenglish.listening.domain.gapfill.QuestionDisplayItem
 import java.text.DateFormat
 import java.util.Date
 
@@ -25,6 +27,7 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
     onSubmit: () -> Unit, onConfirm: () -> Unit, onDismiss: () -> Unit, onNew: () -> Unit, onHistory: (String) -> Unit,
     onSeekBy: (Long) -> Unit = {}, onSpeed: (Float) -> Unit = {}) {
     val listState = rememberLazyListState()
+    val displayItems = remember(state.questions) { GapFillGroupParser.parse(state.questions) }
     val resumeDraft = state.submitted && state.history.firstOrNull { it.session.partId == state.part?.id }
         ?.session?.status == SessionStatus.IN_PROGRESS
     LaunchedEffect(state.attempt?.session?.id, state.submitted) { listState.scrollToItem(0) }
@@ -78,9 +81,23 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
                             }
                         } else Text("已保存 ${state.questions.size - Grader.missingCount(state.questions, state.answers)} / ${state.questions.size} 题", modifier = Modifier.padding(vertical = 8.dp))
                     }
-                    items(state.questions, key = { it.id }) { question ->
-                        QuestionCard(question, state.answers[question.id], !state.submitted && !state.submitting && state.attempt != null,
-                            showResult = state.submitted, onSelect = { onSelect(question.id, it) })
+                    items(displayItems, key = { entry -> when (entry) {
+                        is QuestionDisplayItem.Single -> entry.question.id
+                        is QuestionDisplayItem.InlineGroup -> "inline-${entry.group.questions.first().id}"
+                    } }) { entry ->
+                        when (entry) {
+                            is QuestionDisplayItem.Single -> {
+                                val question = entry.question
+                                QuestionCard(question, state.answers[question.id],
+                                    !state.submitted && !state.submitting && state.attempt != null,
+                                    showResult = state.submitted, onSelect = { onSelect(question.id, it) })
+                            }
+                            is QuestionDisplayItem.InlineGroup -> InlineGapFillGroup(
+                                entry.group, state.answers,
+                                editable = !state.submitted && !state.submitting && !state.saving && state.attempt != null,
+                                submitted = state.submitted, saving = state.saving || state.submitting,
+                                onSelect = onSelect)
+                        }
                     }
                     item {
                         Text("练习记录", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(top = 24.dp))

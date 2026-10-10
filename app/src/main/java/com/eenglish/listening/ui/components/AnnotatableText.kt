@@ -5,6 +5,12 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Typeface
 import android.graphics.Path
+import android.graphics.Paint
+import android.graphics.Canvas
+import android.text.TextPaint
+import android.text.TextUtils
+import android.text.style.ReplacementSpan
+import kotlin.math.ceil
 import android.graphics.Rect
 import android.graphics.RectF
 import android.text.Spannable
@@ -27,12 +33,19 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.text
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.core.widget.TextViewCompat
 import com.eenglish.listening.domain.annotation.*
+
+/** Original-text ranges; the displayed chip never changes the underlying prompt or its hash. */
+data class InlineAnswerGap(val number: Int, val start: Int, val end: Int, val answer: String,
+    val active: Boolean = false, val correct: Boolean? = null)
 
 data class AnnotationContext(val partId: String? = null, val highlights: List<Highlight> = emptyList(),
     val onChange: (List<AnnotationChange>, Boolean) -> Unit = { _, _ -> })
@@ -42,13 +55,25 @@ val LocalAnnotations = staticCompositionLocalOf { AnnotationContext() }
 @Composable
 fun AnnotatableText(document: AnnotationDocument, modifier: Modifier = Modifier,
     style: TextStyle = MaterialTheme.typography.bodyLarge, color: Color = MaterialTheme.colorScheme.onSurface,
-    viewTag: String = "annotation-text", onTap: (() -> Unit)? = null) {
+    viewTag: String = "annotation-text", onTap: (() -> Unit)? = null,
+    inlineGaps: List<InlineAnswerGap> = emptyList(), otherDocuments: List<AnnotationDocument> = emptyList(),
+    activeDocument: AnnotationDocument? = null, onGapClick: ((Int) -> Unit)? = null) {
     val annotations = LocalAnnotations.current
     val density = LocalDensity.current
     val textSize = with(density) { style.fontSize.toPx() }
     val lineHeight = with(density) { style.lineHeight.toPx() }.toInt()
-    val ranges = annotations.partId?.let { document.visibleRanges(it, annotations.highlights) }.orEmpty()
-    AndroidView(modifier = modifier.fillMaxWidth().semantics { this.text = AnnotatedString(document.text) },
+    val ranges = annotations.partId?.let { partId ->
+        (listOf(document) + otherDocuments).flatMap { it.visibleRanges(partId, annotations.highlights) }
+    }.orEmpty()
+    val backgroundColor = MaterialTheme.colorScheme.primaryContainer.toArgb()
+    val foregroundColor = MaterialTheme.colorScheme.onPrimaryContainer.toArgb()
+    val outlineColor = MaterialTheme.colorScheme.primary.toArgb()
+    AndroidView(modifier = modifier.fillMaxWidth().semantics {
+        this.text = AnnotatedString(document.text)
+        if (inlineGaps.isNotEmpty()) customActions = inlineGaps.map { gap ->
+            CustomAccessibilityAction("填写 Q${gap.number}") { onGapClick?.invoke(gap.number); onGapClick != null }
+        }
+    },
         factory = { context -> SelectableAnnotationTextView(context) },
         update = { view ->
             view.tag = viewTag
@@ -59,10 +84,14 @@ fun AnnotatableText(document: AnnotationDocument, modifier: Modifier = Modifier,
             if (view.currentTextColor != color.toArgb()) view.setTextColor(color.toArgb())
             view.canAnnotate = annotations.partId != null
             view.onMark = { start, end, add ->
-                annotations.partId?.let { annotations.onChange(document.selection(it, start, end), add) }
+                annotations.partId?.let { annotations.onChange((activeDocument ?: document).selection(it, start, end), add) }
             }
             view.onTap = onTap
-            view.render(document.text, ranges)
+            view.onGapClick = onGapClick
+            view.gapBackground = backgroundColor
+            view.gapForeground = foregroundColor
+            view.gapOutline = outlineColor
+            view.render(document.text, ranges, inlineGaps)
         })
 }
 
@@ -73,6 +102,12 @@ class SelectableAnnotationTextView(context: Context) : TextView(context) {
     var canAnnotate = false
     var onMark: (Int, Int, Boolean) -> Unit = { _, _, _ -> }
     var onTap: (() -> Unit)? = null
+    var onGapClick: ((Int) -> Unit)? = null
+    var gapBackground: Int = 0xFFE2E8FF.toInt()
+    var gapForeground: Int = 0xFF16235C.toInt()
+    var gapOutline: Int = 0xFF5267CD.toInt()
+    private var renderedGaps: List<InlineAnswerGap> = emptyList()
+    private var pressedGap: Int? = null
     private var wasSelectingAtDown = false
     private var moved = false
     private var downX = 0f
@@ -127,15 +162,29 @@ class SelectableAnnotationTextView(context: Context) : TextView(context) {
             wasSelectingAtDown = actionMode != null
             moved = false
             downX = event.x; downY = event.y
+            pressedGap = gapAt(event.x, event.y)?.number
+            invalidate()
         }
         if (event.actionMasked == MotionEvent.ACTION_MOVE || event.actionMasked == MotionEvent.ACTION_UP) {
             val slop = ViewConfiguration.get(context).scaledTouchSlop
             if (kotlin.math.abs(event.x - downX) > slop || kotlin.math.abs(event.y - downY) > slop) moved = true
         }
         if (event.actionMasked == MotionEvent.ACTION_CANCEL) moved = true
+        if (moved || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+            pressedGap = null
+            invalidate()
+        }
         val shortTap = event.actionMasked == MotionEvent.ACTION_UP && !moved &&
             event.eventTime - event.downTime < ViewConfiguration.getLongPressTimeout()
         if (shortTap) {
+            gapAt(event.x, event.y)?.let { gap ->
+                val cancel = MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_CANCEL }
+                try { super.onTouchEvent(cancel) } finally { cancel.recycle() }
+                pressedGap = null
+                invalidate()
+                onGapClick?.invoke(gap.number)
+                return true
+            }
             highlightedAt(event.x, event.y)?.let { range ->
                 // Cancel the native tap (including double-tap word selection), not the long press.
                 val cancel = MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_CANCEL }
@@ -145,8 +194,28 @@ class SelectableAnnotationTextView(context: Context) : TextView(context) {
             }
         }
         val handled = super.onTouchEvent(event)
+        if (event.actionMasked == MotionEvent.ACTION_UP) {
+            pressedGap = null
+            invalidate()
+        }
         if (shortTap && !wasSelectingAtDown) onTap?.invoke()
         return handled
+    }
+    private fun gapAt(x: Float, y: Float): InlineAnswerGap? {
+        val layout = layout ?: return null
+        val localX = x - totalPaddingLeft + scrollX
+        val localY = y - totalPaddingTop + scrollY
+        if (localY < 0 || localY >= layout.height) return null
+        val line = layout.getLineForVertical(localY.toInt())
+        val path = Path()
+        val bounds = RectF()
+        return renderedGaps.firstOrNull { gap ->
+            if (layout.getLineForOffset(gap.start) != line) return@firstOrNull false
+            path.reset()
+            layout.getSelectionPath(gap.start, gap.end, path)
+            path.computeBounds(bounds, true)
+            bounds.contains(localX, localY)
+        }
     }
     private fun highlightedAt(x: Float, y: Float): HighlightRange? {
         val layout = layout ?: return null
@@ -211,7 +280,7 @@ class SelectableAnnotationTextView(context: Context) : TextView(context) {
         blockActionMode?.finish()
         super.onDetachedFromWindow()
     }
-    fun render(value: String, ranges: List<HighlightRange>) {
+    fun render(value: String, ranges: List<HighlightRange>, gaps: List<InlineAnswerGap> = emptyList()) {
         val merged = HighlightRanges.merge(ranges)
         val changed = text.toString() != value
         if (changed || activeBlock?.let { it !in merged } == true) blockActionMode?.finish()
@@ -219,16 +288,68 @@ class SelectableAnnotationTextView(context: Context) : TextView(context) {
             actionMode?.finish()
             setText(value, BufferType.SPANNABLE)
         }
-        if (!changed && renderedRanges == merged) return
+        if (!changed && renderedRanges == merged && renderedGaps == gaps) return
         val spans = text as Spannable
         spans.getSpans(0, spans.length, PermanentBackground::class.java).forEach(spans::removeSpan)
         spans.getSpans(0, spans.length, PermanentForeground::class.java).forEach(spans::removeSpan)
+        spans.getSpans(0, spans.length, InlineAnswerSpan::class.java).forEach(spans::removeSpan)
         merged.forEach {
             spans.setSpan(PermanentBackground(), it.start, it.end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
             spans.setSpan(PermanentForeground(), it.start, it.end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
+        gaps.forEach { gap ->
+            require(gap.start >= 0 && gap.end <= spans.length && gap.start < gap.end)
+            val maximum = ((width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels) * 0.72f).toInt()
+            spans.setSpan(InlineAnswerSpan(gap, maximum,
+                resources.displayMetrics.density, gapBackground, gapForeground, gapOutline,
+                { pressedGap == gap.number }),
+                gap.start, gap.end, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
         renderedRanges = merged
+        renderedGaps = gaps
         invalidate()
     }
     companion object { private const val ADD = 0x6E0101; private const val REMOVE = 0x6E0102; private const val COPY_BLOCK = 0x6E0103 }
+}
+
+
+/** A native ReplacementSpan keeps source selection offsets stable and wraps as one inline glyph. */
+private class InlineAnswerSpan(
+    private val gap: InlineAnswerGap, private val availablePx: Int, density: Float,
+    private val background: Int, private val foreground: Int, private val outline: Int,
+    private val isPressed: () -> Boolean
+) : ReplacementSpan() {
+    private val pad = 9f * density
+    private val radius = 8f * density
+    private val maximum = minOf(availablePx, (230f * density).toInt()).coerceAtLeast((72f * density).toInt())
+    private fun label() = "${gap.number} · ${gap.answer.ifBlank { "填写" }}"
+    private fun visibleLabel(paint: Paint): String = TextUtils.ellipsize(label(), TextPaint(paint),
+        (maximum - pad * 2).coerceAtLeast(1f), TextUtils.TruncateAt.END).toString()
+    override fun getSize(paint: Paint, text: CharSequence, start: Int, end: Int,
+        fm: Paint.FontMetricsInt?): Int = ceil(paint.measureText(visibleLabel(paint)) + pad * 2).toInt()
+            .coerceAtMost(maximum)
+    override fun draw(canvas: Canvas, text: CharSequence, start: Int, end: Int,
+        x: Float, top: Int, y: Int, bottom: Int, paint: Paint) {
+        val label = visibleLabel(paint)
+        val width = getSize(paint, text, start, end, null).toFloat()
+        val saved = paint.color
+        val savedStyle = paint.style
+        val savedStroke = paint.strokeWidth
+        val bounds = RectF(x, top.toFloat() + 1f, x + width, bottom.toFloat() - 1f)
+        paint.style = Paint.Style.FILL
+        paint.color = if (isPressed()) outline else background
+        canvas.drawRoundRect(bounds, radius, radius, paint)
+        if (gap.active || gap.correct != null) {
+            paint.color = if (gap.correct == false) 0xFFC64046.toInt() else outline
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = if (gap.active) 2.5f else 1.3f
+            canvas.drawRoundRect(bounds, radius, radius, paint)
+        }
+        paint.style = Paint.Style.FILL
+        paint.color = if (isPressed()) 0xFFFFFFFF.toInt() else foreground
+        canvas.drawText(label, x + pad, y.toFloat(), paint)
+        paint.color = saved
+        paint.style = savedStyle
+        paint.strokeWidth = savedStroke
+    }
 }

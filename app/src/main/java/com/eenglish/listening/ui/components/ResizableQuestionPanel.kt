@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextOverflow
 import com.eenglish.listening.domain.model.Question
+import com.eenglish.listening.domain.gapfill.GapFillGroup
 import kotlin.math.roundToInt
 
 @Composable
@@ -30,7 +31,9 @@ fun ResizableQuestionPanel(question: Question, selected: String?, expanded: Bool
     onExpand: () -> Unit, onPrevious: () -> Unit, onNext: () -> Unit, onJump: () -> Unit,
     onSelect: (String) -> Unit, onHeaderSize: (Int) -> Unit,
     onResizeStarted: () -> Unit, onResizeDelta: (Float) -> Unit, onResizeStopped: () -> Unit,
-    onSetRatio: (Float) -> Unit) {
+    onSetRatio: (Float) -> Unit, inlineGroup: GapFillGroup? = null,
+    answers: Map<String, String> = emptyMap(), saving: Boolean = false,
+    onGroupSelect: (String, String) -> Unit = { _, _ -> }, onActivate: (Int) -> Unit = {}) {
     val navigation: @Composable () -> Unit = {
         Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             TextButton(onClick = onPrevious, enabled = hasPrevious,
@@ -80,7 +83,12 @@ fun ResizableQuestionPanel(question: Question, selected: String?, expanded: Bool
                     .verticalScroll(questionScroll).padding(start = 4.dp, end = 4.dp, bottom = questionEndSpace)) {
                     if (!fixedNavigation) navigation()
                     if (submitted) Text("已提交 · 只读", style = MaterialTheme.typography.labelMedium)
-                    QuestionCard(question, selected, editable, showResult = submitted, onSelect = onSelect)
+                    if (inlineGroup != null) {
+                        InlineGapFillGroup(inlineGroup, answers, editable && !saving, submitted, saving,
+                            activeQuestionNumber = question.number, onActivate = onActivate, onSelect = onGroupSelect)
+                    } else {
+                        QuestionCard(question, selected, editable, showResult = submitted, onSelect = onSelect)
+                    }
                 }
             }
         }

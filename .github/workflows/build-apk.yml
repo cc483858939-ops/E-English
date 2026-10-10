@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - work/inline-gap-fill-20261010
   workflow_dispatch:
 
 permissions:
@@ -31,12 +32,13 @@ jobs:
         run: |
           sdkmanager "platforms;android-36" "build-tools;35.0.0"
 
-      - name: Build Debug APK
+      - name: Test and build Debug APK
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon assembleDebug
+          ./gradlew --no-daemon testDebugUnitTest assembleDebug
 
       - name: Upload APK
+        if: github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:
           name: E-English-APK
