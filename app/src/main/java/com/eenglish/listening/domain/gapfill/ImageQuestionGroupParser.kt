@@ -20,10 +20,11 @@ object ImageQuestionGroupParser {
     private const val MAX_GROUP_SIZE = 20
 
     private val rangeHeading = Regex("""(?i)^Questions?\s+(\d{1,3})\s*[-–—]\s*(\d{1,3})$""")
-    private val numberedPlaceholder = Regex("""^\s*(\d{1,3})\s*(?:[.:]\s*)?(_{2,}|[＿﹍]{2,})\s*$""")
-    private val barePlaceholder = Regex("""^\s*(_{2,}|[＿﹍]{2,})\s*$""")
-    private val standaloneNumber = Regex("""^\s*(\d{1,3})\s*$""")
-    private val trailingQuestionNumber = Regex("""^(.*?)[ \t]+(\d{1,3})[ \t]*$""")
+    private val numberedLabel = Regex("""^(\d{1,3})([.:]?)$""")
+    private val numberedPlaceholder = Regex("""^(\d{1,3})([.:]?)(_{2,}|[＿﹍]{2,})$""")
+    private val standaloneNumber = Regex("""^\d{1,3}$""")
+    private val placeholder = Regex("""(?:_{2,}|[＿﹍]{2,})""")
+    private val trailingQuestionNumber = Regex("""(?s)^(.*?)(?:\s+)(\d{1,3})\s*$""")
 
     fun parseAtStart(questions: List<Question>): SharedImageQuestionGroup? {
         val first = questions.firstOrNull() ?: return null
@@ -42,8 +43,8 @@ object ImageQuestionGroupParser {
             members.map { it.id }.distinct().size != members.size
         ) return null
 
-        val sharedPrompt = normalizeLines(first.prompt)
-        val sharedInstructions = normalizeLines(first.instructions)
+        val sharedPrompt = normalizeWhitespace(first.prompt)
+        val sharedInstructions = normalizeWhitespace(first.instructions)
         val sharedContext = first.context
         val sharedWordLimit = first.wordLimit ?: return null
         val sharedType = first.type
@@ -54,16 +55,16 @@ object ImageQuestionGroupParser {
                 !question.isTextInput || question.options.isNotEmpty() ||
                     question.type != sharedType || question.wordLimit != sharedWordLimit ||
                     question.answerSeparator != null || question.groupId != null ||
-                    question.groupNumbers.isNotEmpty() || normalizeLines(question.prompt) != sharedPrompt ||
-                    normalizeLines(question.instructions) != sharedInstructions || question.context != sharedContext ||
+                    question.groupNumbers.isNotEmpty() || normalizeWhitespace(question.prompt) != sharedPrompt ||
+                    normalizeWhitespace(question.instructions) != sharedInstructions || question.context != sharedContext ||
                     (question.images.isNotEmpty() && question.images != sharedImages)
             }
         ) return null
 
         val displayParts = explicitSharedPrefix(
-            promptLines = promptLines,
+            prompt = first.prompt,
             title = title,
-            instructions = sharedInstructions,
+            instructions = first.instructions,
             expectedNumbers = firstNumber..lastNumber,
         ) ?: return null
 
@@ -76,81 +77,114 @@ object ImageQuestionGroupParser {
         )
     }
 
-    /** Returns only the instruction lines after the heading, after validating every suffix row. */
+    /** Extracts the shared instruction prefix from the prompt after validating the complete answer range. */
     private fun explicitSharedPrefix(
-        promptLines: List<String>,
+        prompt: String,
         title: String,
         instructions: String,
         expectedNumbers: IntRange,
     ): String? {
         if (instructions.isBlank()) return null
-        val instructionLines = instructions.split('\n')
-        val instructionsIncludeTitle = instructionLines.firstOrNull()?.trim() == title
-        val prefixLineCount = if (instructionsIncludeTitle) {
-            instructionLines.size
+        val normalizedPrompt = normalizeWhitespaceWithOffsets(prompt)
+        val headingEnd = prompt.indexOfAny(charArrayOf('\r', '\n'))
+        if (headingEnd < 0) return null
+        val instructionStart = if (prompt[headingEnd] == '\r' && prompt.getOrNull(headingEnd + 1) == '\n') {
+            headingEnd + 2
         } else {
-            1 + instructionLines.size
+            headingEnd + 1
         }
-        if (promptLines.size < prefixLineCount) return null
 
-        val actualPrefix = promptLines.take(prefixLineCount)
-        val expectedPrefix = if (instructionsIncludeTitle) {
-            instructionLines
-        } else {
-            listOf(promptLines.first()) + instructionLines
-        }
-        if (actualPrefix != expectedPrefix || actualPrefix.firstOrNull()?.trim() != title) return null
+        // Instructions may include the heading, omit it, or use different whitespace from prompt.
+        // Try both exact textual prefixes; only a complete, validated answer suffix can be removed.
+        val prefixCandidates = listOf(
+            normalizeWhitespace(instructions),
+            normalizeWhitespace("$title\n$instructions"),
+        ).distinct()
+        val validDisplays = prefixCandidates.mapNotNull { expectedPrefix ->
+            if (expectedPrefix.isBlank() || !normalizedPrompt.value.startsWith(expectedPrefix)) return@mapNotNull null
+            if (normalizedPrompt.value.length > expectedPrefix.length &&
+                normalizedPrompt.value[expectedPrefix.length] != ' '
+            ) return@mapNotNull null
 
-        val displayLines = if (instructionsIncludeTitle) {
-            instructionLines.drop(1).joinToString("\n").trim()
-        } else {
-            instructionLines.joinToString("\n").trim()
-        }
-        if (displayLines.isBlank()) return null
+            val prefixEnd = normalizedPrompt.sourceEndOffsets.getOrNull(expectedPrefix.lastIndex)
+                ?: return@mapNotNull null
+            if (prefixEnd < instructionStart) return@mapNotNull null
 
-        val suffix = promptLines.drop(prefixLineCount)
-        if (hasNumberedPlaceholderRows(suffix, expectedNumbers)) return displayLines
+            val displayText = prompt.substring(instructionStart, prefixEnd).trim()
+            if (displayText.isBlank()) return@mapNotNull null
+            val suffixTokens = normalizeWhitespace(prompt.substring(prefixEnd))
+                .split(' ')
+                .filter(String::isNotEmpty)
 
-        // Some packs place Q11 at the end of the final instruction line, then serialize each
-        // remaining question number and its blank on separate lines. Accept only that exact shape.
-        val instructionDisplayLines = displayLines.split('\n').toMutableList()
-        val firstLabel = trailingQuestionNumber.matchEntire(instructionDisplayLines.last()) ?: return null
-        if (firstLabel.groupValues[2].toIntOrNull() != expectedNumbers.first ||
-            firstLabel.groupValues[1].isBlank() ||
-            !hasSplitNumberPlaceholderRows(suffix, expectedNumbers)
-        ) return null
-        instructionDisplayLines[instructionDisplayLines.lastIndex] = firstLabel.groupValues[1].trimEnd()
-        val withoutFirstLabel = instructionDisplayLines.joinToString("\n").trim()
-        return withoutFirstLabel.takeIf(String::isNotBlank)
-    }
-
-    private fun hasNumberedPlaceholderRows(lines: List<String>, expectedNumbers: IntRange): Boolean {
-        var nextNumber = expectedNumbers.first
-        var placeholderCount = 0
-        for (line in lines) {
-            if (line.isBlank()) continue
-            val match = numberedPlaceholder.matchEntire(line) ?: return false
-            val number = match.groupValues[1].toIntOrNull() ?: return false
-            if (number != nextNumber || number > expectedNumbers.last) return false
-            nextNumber++
-            placeholderCount++
-        }
-        return placeholderCount == expectedNumbers.count() && nextNumber == expectedNumbers.last + 1
-    }
-
-    private fun hasSplitNumberPlaceholderRows(lines: List<String>, expectedNumbers: IntRange): Boolean {
-        val content = lines.filterNot(String::isBlank)
-        var index = 0
-        if (content.isEmpty() || barePlaceholder.matchEntire(content[index++]) == null) return false
-        for (number in expectedNumbers.drop(1)) {
-            if (index >= content.size) return false
-            val label = standaloneNumber.matchEntire(content[index++])?.groupValues?.get(1)?.toIntOrNull()
-            if (label != number || index >= content.size || barePlaceholder.matchEntire(content[index++]) == null) {
-                return false
+            val firstLabel = trailingQuestionNumber.matchEntire(displayText)
+            val containsFirstQuestionLabel = firstLabel?.groupValues?.get(2)?.toIntOrNull() == expectedNumbers.first
+            when {
+                containsFirstQuestionLabel && hasSplitNumberPlaceholderTokens(suffixTokens, expectedNumbers) ->
+                    firstLabel!!.groupValues[1].trimEnd().takeIf(String::isNotBlank)
+                containsFirstQuestionLabel -> null
+                hasNumberedPlaceholderTokens(suffixTokens, expectedNumbers) -> displayText
+                else -> null
             }
         }
-        return index == content.size
+        return validDisplays.distinct().singleOrNull()
+    }
+
+    private fun hasNumberedPlaceholderTokens(tokens: List<String>, expectedNumbers: IntRange): Boolean {
+        var index = 0
+        for (expectedNumber in expectedNumbers) {
+            if (index >= tokens.size) return false
+            val combined = numberedPlaceholder.matchEntire(tokens[index])
+            if (combined != null) {
+                if (combined.groupValues[1].toIntOrNull() != expectedNumber) return false
+                index++
+                continue
+            }
+
+            val label = numberedLabel.matchEntire(tokens[index++])?.groupValues?.get(1)?.toIntOrNull()
+                ?: return false
+            if (label != expectedNumber) return false
+            if (index < tokens.size && tokens[index] in setOf(".", ":")) index++
+            if (index >= tokens.size || !placeholder.matches(tokens[index++])) return false
+        }
+        return index == tokens.size
+    }
+
+    private fun hasSplitNumberPlaceholderTokens(tokens: List<String>, expectedNumbers: IntRange): Boolean {
+        var index = 0
+        if (tokens.isEmpty() || !placeholder.matches(tokens[index++])) return false
+        for (number in expectedNumbers.drop(1)) {
+            if (index >= tokens.size || !standaloneNumber.matches(tokens[index++]) ||
+                tokens[index - 1].toIntOrNull() != number || index >= tokens.size ||
+                !placeholder.matches(tokens[index++])
+            ) return false
+        }
+        return index == tokens.size
     }
 
     private fun normalizeLines(value: String): String = value.replace("\r\n", "\n").replace('\r', '\n')
+
+    private fun normalizeWhitespace(value: String): String = normalizeWhitespaceWithOffsets(value).value
+
+    private data class NormalizedWhitespace(val value: String, val sourceEndOffsets: IntArray)
+
+    /** Collapses Unicode whitespace for comparison while retaining offsets into the untouched source. */
+    private fun normalizeWhitespaceWithOffsets(value: String): NormalizedWhitespace {
+        val normalized = StringBuilder()
+        val sourceEndOffsets = ArrayList<Int>()
+        var pendingWhitespace = false
+        value.forEachIndexed { index, character ->
+            if (character.isWhitespace()) {
+                pendingWhitespace = true
+            } else {
+                if (pendingWhitespace && normalized.isNotEmpty()) {
+                    normalized.append(' ')
+                    sourceEndOffsets += index
+                }
+                normalized.append(character)
+                sourceEndOffsets += index + 1
+                pendingWhitespace = false
+            }
+        }
+        return NormalizedWhitespace(normalized.toString(), sourceEndOffsets.toIntArray())
+    }
 }

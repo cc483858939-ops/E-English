@@ -57,6 +57,56 @@ class ImageQuestionGroupParserTest {
         assertSame(group.questions.first(), (displayed.single() as QuestionDisplayItem.ImageGroup).group.questions.first())
     }
 
+    @Test fun matchesMultilinePromptAgainstSingleLineInstructions() {
+        val oneLineInstructions = instructions.replace("\n", " ")
+        val source = questions(instructionsOverride = { oneLineInstructions })
+
+        val group = ImageQuestionGroupParser.parseAtStart(source)
+
+        assertNotNull(group)
+        assertEquals("Complete the table below.\nWrite no more than three words for each answer.", group?.instructions)
+    }
+
+    @Test fun lineEndingDifferencesBetweenPromptAndInstructionsDoNotBlockGrouping() {
+        val crlfPrompt = prompt.replace("\n", "\r\n")
+        val source = questions(promptOverride = { crlfPrompt })
+
+        val group = ImageQuestionGroupParser.parseAtStart(source)
+
+        assertEquals((11..19).toList(), group?.questions?.map { it.number })
+    }
+
+    @Test fun repeatedSpacesAndTabsNormalizeOnlyForComparison() {
+        val variedPrompt = prompt.replace("Complete the table below.", "Complete\t the  table below.")
+        val variedInstructions = instructions.replace("Complete the table below.", "Complete  the\ttable below.")
+        val source = questions(
+            promptOverride = { variedPrompt },
+            instructionsOverride = { variedInstructions },
+        )
+
+        val group = ImageQuestionGroupParser.parseAtStart(source)
+
+        assertNotNull(group)
+        assertEquals(variedPrompt, source.first().prompt)
+        assertEquals(variedInstructions, source.first().instructions)
+        assertTrue(group?.instructions?.contains("Complete\t the  table below.") == true)
+    }
+
+    @Test fun nonWhitespaceInstructionDifferencesAreNeverNormalizedAway() {
+        val variants = listOf(
+            instructions.replace("table", "form"),
+            instructions.replace("three words", "four words"),
+            instructions.replace("answer.", "answer!"),
+            instructions.replace("Complete", "complete"),
+        )
+
+        variants.forEach { changedInstructions ->
+            assertNull(ImageQuestionGroupParser.parseAtStart(
+                questions(instructionsOverride = { changedInstructions }),
+            ))
+        }
+    }
+
     @Test fun allowsImageOnlyOnFirstQuestionAndDeduplicatesSharedPaths() {
         val firstOnly = questions(imageFor = { number -> if (number == 11) listOf("table.png") else emptyList() })
         assertEquals(listOf("table.png"), ImageQuestionGroupParser.parseAtStart(firstOnly)?.images)
@@ -81,11 +131,37 @@ class ImageQuestionGroupParserTest {
         assertEquals((11..12).toList(), ImageQuestionGroupParser.parseAtStart(pair)?.questions?.map { it.number })
     }
 
+    @Test fun stripsTrailingQuestionElevenOnlyWhenTheRemainingSplitRowsAreComplete() {
+        val original = questions()
+
+        val group = ImageQuestionGroupParser.parseAtStart(original)
+
+        assertNotNull(group)
+        assertTrue(group?.instructions?.endsWith("answer.") == true)
+        assertFalse(group?.instructions?.contains(" 11") == true)
+
+        val missingFinalBlank = questions(promptOverride = { prompt.replaceFirst("______", "") })
+        assertNull(ImageQuestionGroupParser.parseAtStart(missingFinalBlank))
+    }
+
+    @Test fun missingQuestionNumberOrPlaceholderFallsBackToIndependentQuestions() {
+        val missingNumber = questions(promptOverride = { prompt.replace("\n12\n", "\n") })
+        val missingPlaceholder = questions(promptOverride = { prompt.replaceFirst("______", "") })
+
+        listOf(missingNumber, missingPlaceholder).forEach { source ->
+            assertNull(ImageQuestionGroupParser.parseAtStart(source))
+            assertTrue(QuestionLayoutDisplayParser.parse(source, emptyList()).all { it is QuestionDisplayItem.Single })
+        }
+    }
+
     @Test fun differingImagesPromptsOrInstructionsFallBackToIndependentCards() {
         val conflicts = listOf(
             questions(imageFor = { number -> if (number == 15) listOf("other.png") else listOf("table.png") }),
             questions(instructionsOverride = { number -> if (number == 16) "$instructions extra" else instructions }),
             questions(promptOverride = { number -> if (number == 17) prompt.replace("table", "form") else prompt }),
+            questions(instructionsOverride = { instructions.replace("table", "form") }),
+            questions().toMutableList().apply { this[4] = this[4].copy(type = QuestionType.NOTE_COMPLETION) },
+            questions().toMutableList().apply { this[4] = this[4].copy(wordLimit = WordLimit(2, 0)) },
         )
         conflicts.forEach { source ->
             assertNull(ImageQuestionGroupParser.parseAtStart(source))

@@ -92,7 +92,7 @@ private fun AnswerGrid(
     onSelect: (String, String) -> Unit,
 ) {
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val columns = if (maxWidth >= 136.dp * 2 + 8.dp) 2 else 1
+        val columns = if (maxWidth >= 360.dp) 2 else 1
         val rows = if (columns == 2) questions.chunked(2) else questions.map { listOf(it) }
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             rows.forEach { rowQuestions ->
