@@ -95,11 +95,23 @@ private fun StructuredLayoutChildren(
     onCommit: (String) -> Unit,
 ) {
     var index = 0
+    val structuralBlocks = setOf("paragraph", "listItem", "formRow")
     while (index < blocks.size) {
         val block = blocks[index]
-        if (block.type in setOf("text", "fixedText", "blank", "lineBreak")) {
+        if (block.type == "lineBreak") {
+            var next = index + 1
+            while (next < blocks.size && blocks[next].type == "lineBreak") next++
+            val previousIsStructural = index > 0 && blocks[index - 1].type in structuralBlocks
+            val nextIsStructural = next < blocks.size && blocks[next].type in structuralBlocks
+            if (!previousIsStructural && !nextIsStructural) {
+                Spacer(Modifier.height(if (next - index > 1) 8.dp else 4.dp))
+            }
+            index = next
+            continue
+        }
+        if (block.type in setOf("text", "fixedText", "blank")) {
             val start = index
-            while (index < blocks.size && blocks[index].type in setOf("text", "fixedText", "blank", "lineBreak")) index++
+            while (index < blocks.size && blocks[index].type in setOf("text", "fixedText", "blank")) index++
             StructuredLayoutRun(
                 blocks = blocks.subList(start, index),
                 path = "$path-$start",
@@ -117,7 +129,7 @@ private fun StructuredLayoutChildren(
             continue
         }
         when (block.type) {
-            "paragraph" -> Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+            "paragraph" -> Column(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
                 StructuredLayoutChildren(block.children, "$path-$index", group, questions, answers,
                     editable, submitted, incorrect, activeQuestionNumber, onActivate, onEdit, onCommit)
             }
