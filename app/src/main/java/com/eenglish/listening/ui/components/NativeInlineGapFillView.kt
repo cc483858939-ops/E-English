@@ -37,9 +37,9 @@ import com.eenglish.listening.domain.grading.Grader
  */
 class NativeInlineGapFillView(context: Context) : FrameLayout(context) {
     private val density = resources.displayMetrics.density
-    private val boxHeight = (48f * density).toInt()
     private val touchTargetHeight = (48f * density).toInt()
-    private val boxWidth = (146f * density).toInt()
+    private val boxHeight = touchTargetHeight
+    private val boxWidth = (136f * density).toInt()
     private val textView = SelectableAnnotationTextView(context)
     private data class Editor(val number: Int, val id: String, val slotIndex: Int, val box: LinearLayout,
         val label: TextView, val input: EditText, var programmatic: Boolean = false)

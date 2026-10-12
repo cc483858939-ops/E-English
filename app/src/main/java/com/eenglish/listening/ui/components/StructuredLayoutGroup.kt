@@ -41,7 +41,7 @@ fun StructuredLayoutGroup(
     val first = questions.first().number
     val last = questions.last().number
 
-    Column(Modifier.fillMaxWidth().padding(vertical = 12.dp).testTag("structured-layout-$first-$last")) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp).testTag("structured-layout-$first-$last")) {
         key(LocalAnswerSession.current, group.groupId) {
             StructuredLayoutChildren(
                 blocks = group.blocks,
@@ -96,19 +96,40 @@ private fun StructuredLayoutChildren(
 ) {
     var index = 0
     val structuralBlocks = setOf("paragraph", "listItem", "formRow")
+    var previousRenderedType: String? = null
+    var pendingLineBreaks = 0
+
+    fun structuralSpacing(previous: String?, current: String): androidx.compose.ui.unit.Dp {
+        val previousType = previous ?: return 0.dp
+        if (previousType !in structuralBlocks || current !in structuralBlocks) return 0.dp
+        val previousSpacing = if (previousType == "paragraph") 6.dp else 4.dp
+        val currentSpacing = if (current == "paragraph") 6.dp else 4.dp
+        return maxOf(previousSpacing, currentSpacing)
+    }
+
     while (index < blocks.size) {
         val block = blocks[index]
         if (block.type == "lineBreak") {
-            var next = index + 1
-            while (next < blocks.size && blocks[next].type == "lineBreak") next++
-            val previousIsStructural = index > 0 && blocks[index - 1].type in structuralBlocks
-            val nextIsStructural = next < blocks.size && blocks[next].type in structuralBlocks
-            if (!previousIsStructural && !nextIsStructural) {
-                Spacer(Modifier.height(if (next - index > 1) 8.dp else 4.dp))
+            while (index < blocks.size && blocks[index].type == "lineBreak") {
+                pendingLineBreaks++
+                index++
             }
-            index = next
             continue
         }
+
+        val nextIsStructural = block.type in structuralBlocks
+        val previousIsStructural = previousRenderedType?.let { it in structuralBlocks } == true
+        val bothSidesAreStructural = previousIsStructural && nextIsStructural
+        val structureGap = structuralSpacing(previousRenderedType, block.type)
+        val lineBreakGap = when {
+            pendingLineBreaks == 0 || bothSidesAreStructural -> 0.dp
+            previousRenderedType == null -> 10.dp
+            pendingLineBreaks > 1 -> 10.dp
+            else -> 0.dp // Adjacent rendered blocks already put a single break on the next line.
+        }
+        val gap = maxOf(structureGap, lineBreakGap)
+        if (gap > 0.dp) Spacer(Modifier.height(gap))
+
         if (block.type in setOf("text", "fixedText", "blank")) {
             val start = index
             while (index < blocks.size && blocks[index].type in setOf("text", "fixedText", "blank")) index++
@@ -126,14 +147,16 @@ private fun StructuredLayoutChildren(
                 onEdit = onEdit,
                 onCommit = onCommit,
             )
+            previousRenderedType = blocks[index - 1].type
+            pendingLineBreaks = 0
             continue
         }
         when (block.type) {
-            "paragraph" -> Column(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+            "paragraph" -> Column(Modifier.fillMaxWidth()) {
                 StructuredLayoutChildren(block.children, "$path-$index", group, questions, answers,
                     editable, submitted, incorrect, activeQuestionNumber, onActivate, onEdit, onCommit)
             }
-            "listItem" -> Row(Modifier.fillMaxWidth().padding(vertical = 2.dp),
+            "listItem" -> Row(Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.Top) {
                 Text(block.marker ?: "•", modifier = Modifier.padding(end = 8.dp))
                 Column(Modifier.weight(1f)) {
@@ -141,7 +164,7 @@ private fun StructuredLayoutChildren(
                         editable, submitted, incorrect, activeQuestionNumber, onActivate, onEdit, onCommit)
                 }
             }
-            "formRow" -> Row(Modifier.fillMaxWidth().padding(vertical = 3.dp),
+            "formRow" -> Row(Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically) {
                 block.label?.takeIf { it.isNotBlank() }?.let {
                     Text(it, modifier = Modifier.widthIn(min = 72.dp, max = 144.dp).padding(end = 8.dp),
@@ -154,7 +177,14 @@ private fun StructuredLayoutChildren(
             }
             else -> Unit // The installer validator rejects unsupported block types.
         }
+        if (block.type in structuralBlocks) previousRenderedType = block.type
+        pendingLineBreaks = 0
         index++
+    }
+
+    // A source break at the end has no following content to carry its natural line separation.
+    if (pendingLineBreaks > 0) {
+        Spacer(Modifier.height(10.dp))
     }
 }
 
@@ -192,7 +222,7 @@ private fun StructuredLayoutRun(
         }.orEmpty()
         val displayProjection = remember(blocks) { StructuredLayoutProjection.from(blocks) }
         AndroidView(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).testTag("structured-text-$path"),
+            modifier = Modifier.fillMaxWidth().testTag("structured-text-$path"),
             factory = { context -> NativeInlineGapFillView(context) },
             update = { view ->
                 view.renderStructured(group, questions, displayProjection, answers, editable = false,
@@ -218,10 +248,10 @@ private fun StructuredLayoutRun(
     }
     val partId = annotations.partId
     val highlights = partId?.let { projection.visibleHighlights(it, group, questions, annotations.highlights) }.orEmpty()
-    Column(Modifier.fillMaxWidth().padding(vertical = 3.dp).testTag("structured-run-$path")) {
+    Column(Modifier.fillMaxWidth().testTag("structured-run-$path")) {
         key(LocalAnswerSession.current, "$path-${projection.slots.firstOrNull()?.questionId.orEmpty()}") {
             AndroidView(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth(),
                 factory = { context -> NativeInlineGapFillView(context) },
                 update = { view ->
                     view.renderStructured(group, questions, projection, answers, editable,
