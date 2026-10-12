@@ -42,10 +42,20 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.core.widget.TextViewCompat
 import com.eenglish.listening.domain.annotation.*
+import com.eenglish.listening.domain.gapfill.MatchingInlineProjection
 
 /** Original-text ranges; the displayed chip never changes the underlying prompt or its hash. */
 data class InlineAnswerGap(val number: Int, val start: Int, val end: Int, val answer: String,
-    val active: Boolean = false, val correct: Boolean? = null)
+    val active: Boolean = false, val correct: Boolean? = null,
+    val emptyLabel: String = "填写", val accessibilityLabel: String = "填写 Q$number",
+    val trailingIndicator: String = "", val minimumTouchHeightDp: Int = 0) {
+    fun displayLabel(): String = buildString {
+        append(number)
+        append(" · ")
+        append(answer.ifBlank { emptyLabel })
+        if (trailingIndicator.isNotBlank()) append(" $trailingIndicator")
+    }
+}
 
 data class AnnotationContext(val partId: String? = null, val highlights: List<Highlight> = emptyList(),
     val onChange: (List<AnnotationChange>, Boolean) -> Unit = { _, _ -> })
@@ -57,21 +67,28 @@ fun AnnotatableText(document: AnnotationDocument, modifier: Modifier = Modifier,
     style: TextStyle = MaterialTheme.typography.bodyLarge, color: Color = MaterialTheme.colorScheme.onSurface,
     viewTag: String = "annotation-text", onTap: (() -> Unit)? = null,
     inlineGaps: List<InlineAnswerGap> = emptyList(), otherDocuments: List<AnnotationDocument> = emptyList(),
-    activeDocument: AnnotationDocument? = null, onGapClick: ((Int) -> Unit)? = null) {
+    activeDocument: AnnotationDocument? = null, onGapClick: ((Int) -> Unit)? = null,
+    matchingProjection: MatchingInlineProjection? = null,
+    sourceDocuments: List<AnnotationDocument> = emptyList()) {
     val annotations = LocalAnnotations.current
+    val annotationDocuments = sourceDocuments.ifEmpty { listOf(document) + otherDocuments }
+    require(matchingProjection == null || annotationDocuments.all { it.text == matchingProjection.source }) {
+        "Matching annotation source must match its exact source projection"
+    }
     val density = LocalDensity.current
     val textSize = with(density) { style.fontSize.toPx() }
     val lineHeight = with(density) { style.lineHeight.toPx() }.toInt()
     val ranges = annotations.partId?.let { partId ->
-        (listOf(document) + otherDocuments).flatMap { it.visibleRanges(partId, annotations.highlights) }
+        val sourceRanges = annotationDocuments.flatMap { it.visibleRanges(partId, annotations.highlights) }
+        matchingProjection?.displayRanges(sourceRanges) ?: sourceRanges
     }.orEmpty()
     val backgroundColor = MaterialTheme.colorScheme.primaryContainer.toArgb()
     val foregroundColor = MaterialTheme.colorScheme.onPrimaryContainer.toArgb()
     val outlineColor = MaterialTheme.colorScheme.primary.toArgb()
     AndroidView(modifier = modifier.fillMaxWidth().semantics {
         this.text = AnnotatedString(document.text)
-        if (inlineGaps.isNotEmpty()) customActions = inlineGaps.map { gap ->
-            CustomAccessibilityAction("填写 Q${gap.number}") { onGapClick?.invoke(gap.number); onGapClick != null }
+        if (inlineGaps.isNotEmpty() && onGapClick != null) customActions = inlineGaps.map { gap ->
+            CustomAccessibilityAction(gap.accessibilityLabel) { onGapClick.invoke(gap.number); true }
         }
     },
         factory = { context -> SelectableAnnotationTextView(context) },
@@ -87,13 +104,20 @@ fun AnnotatableText(document: AnnotationDocument, modifier: Modifier = Modifier,
                 annotations.partId?.let { partId ->
                     // On removal, include every original question key: old highlights may have
                     // been saved under any member before this display-layer grouping existed.
-                    val documents = if (add) listOf(activeDocument ?: document) else listOf(document) + otherDocuments
-                    annotations.onChange(documents.flatMap { it.selection(partId, start, end) }, add)
+                    val documents = if (add) listOf(activeDocument ?: document) else annotationDocuments
+                    val changes = matchingProjection?.let { projection ->
+                        projection.sourceRanges(start, end).flatMap { sourceRange ->
+                            documents.filter { it.text == projection.source }.flatMap { sourceDocument ->
+                                sourceDocument.selection(partId, sourceRange.start, sourceRange.end)
+                            }
+                        }
+                    } ?: documents.flatMap { sourceDocument -> sourceDocument.selection(partId, start, end) }
+                    annotations.onChange(changes, add)
                 }
             }
             view.copyTransform = null
             view.onTap = onTap
-            view.onGapClick = onGapClick
+            view.onGapClick = onGapClick?.let { handler -> { number -> handler(number) } }
             view.gapBackground = backgroundColor
             view.gapForeground = foregroundColor
             view.gapOutline = outlineColor
@@ -169,7 +193,7 @@ class SelectableAnnotationTextView(context: Context) : TextView(context) {
             wasSelectingAtDown = actionMode != null
             moved = false
             downX = event.x; downY = event.y
-            pressedGap = gapAt(event.x, event.y)?.number
+            pressedGap = if (onGapClick != null) gapAt(event.x, event.y)?.number else null
             invalidate()
         }
         if (event.actionMasked == MotionEvent.ACTION_MOVE || event.actionMasked == MotionEvent.ACTION_UP) {
@@ -184,7 +208,7 @@ class SelectableAnnotationTextView(context: Context) : TextView(context) {
         val shortTap = event.actionMasked == MotionEvent.ACTION_UP && !moved &&
             event.eventTime - event.downTime < ViewConfiguration.getLongPressTimeout()
         if (shortTap) {
-            gapAt(event.x, event.y)?.let { gap ->
+            gapAt(event.x, event.y)?.takeIf { onGapClick != null }?.let { gap ->
                 val cancel = MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_CANCEL }
                 try { super.onTouchEvent(cancel) } finally { cancel.recycle() }
                 pressedGap = null
@@ -322,19 +346,32 @@ class SelectableAnnotationTextView(context: Context) : TextView(context) {
 
 /** A native ReplacementSpan keeps source selection offsets stable and wraps as one inline glyph. */
 private class InlineAnswerSpan(
-    private val gap: InlineAnswerGap, private val availablePx: Int, density: Float,
+    private val gap: InlineAnswerGap, private val availablePx: Int, private val density: Float,
     private val background: Int, private val foreground: Int, private val outline: Int,
     private val isPressed: () -> Boolean
 ) : ReplacementSpan() {
     private val pad = 9f * density
     private val radius = 8f * density
     private val maximum = minOf(availablePx, (230f * density).toInt()).coerceAtLeast((72f * density).toInt())
-    private fun label() = "${gap.number} · ${gap.answer.ifBlank { "填写" }}"
+    private fun label() = gap.displayLabel()
     private fun visibleLabel(paint: Paint): String = TextUtils.ellipsize(label(), TextPaint(paint),
         (maximum - pad * 2).coerceAtLeast(1f), TextUtils.TruncateAt.END).toString()
     override fun getSize(paint: Paint, text: CharSequence, start: Int, end: Int,
-        fm: Paint.FontMetricsInt?): Int = ceil(paint.measureText(visibleLabel(paint)) + pad * 2).toInt()
-            .coerceAtMost(maximum)
+        fm: Paint.FontMetricsInt?): Int {
+        fm?.let { metrics ->
+            val minimumHeight = ceil(gap.minimumTouchHeightDp * density).toInt()
+            val extra = minimumHeight - (metrics.descent - metrics.ascent)
+            if (extra > 0) {
+                val above = extra / 2
+                val below = extra - above
+                metrics.top -= above
+                metrics.ascent -= above
+                metrics.descent += below
+                metrics.bottom += below
+            }
+        }
+        return ceil(paint.measureText(visibleLabel(paint)) + pad * 2).toInt().coerceAtMost(maximum)
+    }
     override fun draw(canvas: Canvas, text: CharSequence, start: Int, end: Int,
         x: Float, top: Int, y: Int, bottom: Int, paint: Paint) {
         val label = visibleLabel(paint)

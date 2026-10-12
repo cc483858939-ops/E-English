@@ -2,6 +2,7 @@ package com.eenglish.listening
 
 import com.eenglish.listening.domain.gapfill.QuestionDisplayItem
 import com.eenglish.listening.domain.gapfill.QuestionLayoutDisplayParser
+import com.eenglish.listening.domain.gapfill.MatchingInlineFallbackReason
 import com.eenglish.listening.domain.gapfill.SharedMatchingGroupParser
 import com.eenglish.listening.domain.gapfill.SharedMultipleChoiceGroupParser
 import com.eenglish.listening.domain.gapfill.SharedTextFallbackGroupParser
@@ -78,6 +79,101 @@ class SharedQuestionGroupParserTest {
         })
         // The display wrapper keeps per-question IDs, so both may independently store A.
         assertNotEquals(group.questions[0].id, group.questions[1].id)
+    }
+
+    @Test fun matchingInlineSlotsUseOriginalUtf16OffsetsForSameLineAndFollowingLineBlanks() {
+        val prompts = listOf(
+            """Questions 26-27
+                Which time period matches each item?
+                26 understanding of tides _____
+                27 forecasting storms _____""".trimIndent(),
+            """Questions 26-27
+                Which time period matches each item?
+                26 understanding of tides
+                _____
+                27 forecasting storms
+                ______""".trimIndent(),
+        )
+        prompts.forEachIndexed { index, prompt ->
+            val group = requireNotNull(SharedMatchingGroupParser.parseAtStart(matching(prompt = prompt)))
+            val slots = requireNotNull(group.inlineSlots)
+            assertEquals(listOf("matching-q26", "matching-q27"), slots.map { it.questionId })
+            assertEquals(listOf(26, 27), slots.map { it.number })
+            assertEquals(
+                if (index == 0) listOf("_____", "_____") else listOf("_____", "______"),
+                slots.map { prompt.substring(it.start, it.end) },
+            )
+            assertTrue(slots.all { slot -> prompt.substring(slot.start, slot.end).none { it == '\r' || it == '\n' } })
+            assertTrue(slots.zipWithNext().all { (left, right) -> left.end <= right.start })
+        }
+    }
+
+    @Test fun matchingInlineSlotsHandleCrLfTabsMultilineRowsAndSupplementaryUnicode() {
+        val prompt = listOf(
+            "Questions 26-27",
+            "Which period matches each item?",
+            "26\tCafé 🌊 and a description that continues",
+            "on the next source line __",
+            "27\tforecasting storms\t_____",
+        ).joinToString("\r\n")
+        val group = requireNotNull(SharedMatchingGroupParser.parseAtStart(matching(prompt = prompt)))
+        val slots = requireNotNull(group.inlineSlots)
+        assertEquals(2, slots.size)
+        assertEquals(prompt.indexOf("__"), slots[0].start)
+        assertEquals(prompt.indexOf("_____") + 5, slots[1].end)
+        assertTrue(slots.all { prompt.substring(it.start, it.end).none { ch -> ch == '\r' || ch == '\n' } })
+        assertEquals(listOf("matching-q26", "matching-q27"), group.questionRows?.map { it.questionId })
+        val firstRow = requireNotNull(group.questionRows).first()
+        assertEquals("26\tCafé 🌊 and a description that continues\r\non the next source line __",
+            prompt.substring(firstRow.start, firstRow.end))
+    }
+
+    @Test fun matchingKeepsQuestionRowFallbackWhenBlankLocationsAreNotUnique() {
+        val noBlanks = """Questions 26-27
+            Which time period matches each item?
+            26 understanding of tides
+            27 forecasting storms""".trimIndent()
+        val noBlankGroup = requireNotNull(SharedMatchingGroupParser.parseAtStart(matching(prompt = noBlanks)))
+        assertNull(noBlankGroup.inlineSlots)
+        assertEquals(MatchingInlineFallbackReason.NO_EXPLICIT_PLACEHOLDER, noBlankGroup.inlineFallbackReason)
+        assertEquals(listOf("matching-q26", "matching-q27"), noBlankGroup.questionRows?.map { it.questionId })
+
+        val ambiguous = matchingPrompt.replace("_____\n27 forecasting storms\n_____", "_____ _____\n27 forecasting storms")
+        val ambiguousGroup = requireNotNull(SharedMatchingGroupParser.parseAtStart(matching(prompt = ambiguous)))
+        assertNull(ambiguousGroup.inlineSlots)
+        assertNotNull(ambiguousGroup.inlineFallbackReason)
+        assertNotNull(ambiguousGroup.questionRows)
+
+        val missingRow = noBlanks.replace("27 forecasting storms", "forecasting storms")
+        val missingRowGroup = requireNotNull(SharedMatchingGroupParser.parseAtStart(matching(prompt = missingRow)))
+        assertNull(missingRowGroup.inlineSlots)
+        assertNull(missingRowGroup.questionRows)
+        assertEquals(MatchingInlineFallbackReason.NUMBERED_ROWS_NOT_EXTRACTABLE,
+            missingRowGroup.inlineFallbackReason)
+    }
+
+    @Test fun matchingSlotRangesAreBoundToEachOriginalQuestionAcrossMultipleGroups() {
+        val firstPrompt = """Questions 26-27
+            Shared prompt
+            26 first item _____
+            27 second item _____""".trimIndent()
+        val secondPrompt = """Questions 28-29
+            Another shared prompt
+            28 third item _____
+            29 fourth item _____""".trimIndent()
+        val source = matching(prompt = firstPrompt) + matching(
+            prompt = secondPrompt,
+            ids = listOf("matching-q28", "matching-q29"),
+            numbers = listOf(28, 29),
+        )
+        val items = QuestionLayoutDisplayParser.parse(source, emptyList())
+        val groups = items.filterIsInstance<QuestionDisplayItem.SharedMatching>().map { it.group }
+        assertEquals(2, groups.size)
+        assertEquals(listOf("matching-q26", "matching-q27"), groups[0].inlineSlots?.map { it.questionId })
+        assertEquals(listOf("matching-q28", "matching-q29"), groups[1].inlineSlots?.map { it.questionId })
+        assertEquals(source.map { it.id }, items.flatMap { item ->
+            (item as QuestionDisplayItem.SharedMatching).group.questions.map { it.id }
+        })
     }
 
     @Test fun matchingWhitespaceMayVaryButTextOptionAndInstructionChangesReject() {

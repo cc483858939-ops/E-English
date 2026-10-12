@@ -16,7 +16,23 @@ data class SharedMatchingQuestionGroup(
     val optionsInPrompt: Boolean,
     /** Present only when every numbered row can be extracted without losing text. */
     val questionTexts: Map<String, String>?,
+    /** Exact UTF-16 ranges in [prompt], present only when every row has one unambiguous blank. */
+    val inlineSlots: List<MatchingInlineSlot>?,
+    /** Exact source slices for a safe question-row display when a whole-prompt view is unsuitable. */
+    val questionRows: List<MatchingQuestionRow>?,
+    val inlineFallbackReason: MatchingInlineFallbackReason?,
 )
+
+data class MatchingInlineSlot(val questionId: String, val number: Int, val start: Int, val end: Int)
+
+data class MatchingQuestionRow(val questionId: String, val number: Int, val start: Int, val end: Int)
+
+enum class MatchingInlineFallbackReason {
+    NUMBERED_ROWS_NOT_EXTRACTABLE,
+    NO_EXPLICIT_PLACEHOLDER,
+    PLACEHOLDER_COUNT_MISMATCH,
+    AMBIGUOUS_PLACEHOLDERS_IN_ROW,
+}
 
 object SharedMatchingGroupParser {
     private const val MAX_GROUP_SIZE = 20
@@ -78,6 +94,11 @@ object SharedMatchingGroupParser {
         val promptOptionCount = countPromptOptions(first.prompt, first.options)
         if (promptOptionCount in 1 until first.options.size) return null
 
+        val numberedRows = extractQuestionRows(first.prompt, members, start..end)
+        val inlineResult = if (numberedRows == null) {
+            null to MatchingInlineFallbackReason.NUMBERED_ROWS_NOT_EXTRACTABLE
+        } else createInlineSlots(first.prompt, numberedRows)
+
         return SharedMatchingQuestionGroup(
             questions = members,
             title = title,
@@ -88,7 +109,88 @@ object SharedMatchingGroupParser {
             images = images.toList(),
             optionsInPrompt = promptOptionCount == first.options.size,
             questionTexts = extractQuestionTexts(lines, start..end),
+            inlineSlots = inlineResult.first,
+            questionRows = numberedRows,
+            inlineFallbackReason = inlineResult.second,
         )
+    }
+
+    private data class SourceLine(val start: Int, val end: Int, val text: String)
+
+    /** Splits only for inspection; offsets remain indices into the untouched UTF-16 source string. */
+    private fun sourceLines(source: String): List<SourceLine> {
+        val result = mutableListOf<SourceLine>()
+        var start = 0
+        while (start <= source.length) {
+            var end = start
+            while (end < source.length && source[end] != '\r' && source[end] != '\n') end++
+            result += SourceLine(start, end, source.substring(start, end))
+            if (end == source.length) break
+            start = if (source[end] == '\r' && end + 1 < source.length && source[end + 1] == '\n') end + 2 else end + 1
+        }
+        return result
+    }
+
+    /**
+     * Returns one exact source slice per question. The only source characters omitted from these
+     * slices are whitespace between rows and trailing whitespace; no question text is rewritten.
+     */
+    private fun extractQuestionRows(
+        prompt: String,
+        questions: List<Question>,
+        expected: IntRange,
+    ): List<MatchingQuestionRow>? {
+        val lines = sourceLines(prompt)
+        val starts = lines.mapIndexedNotNull { index, line ->
+            val match = rowLine.matchEntire(line.text) ?: return@mapIndexedNotNull null
+            val number = match.groupValues[1].toIntOrNull() ?: return@mapIndexedNotNull null
+            if (number in expected) index to number else null
+        }
+        if (starts.map { it.second } != expected.toList()) return null
+
+        return starts.mapIndexed { rowIndex, (lineIndex, number) ->
+            val nextLineIndex = starts.getOrNull(rowIndex + 1)?.first ?: lines.size
+            val rowContent = (listOf(rowLine.matchEntire(lines[lineIndex].text)?.groupValues?.get(2).orEmpty()) +
+                lines.subList(lineIndex + 1, nextLineIndex).map { it.text })
+                .map { placeholder.replace(it, "").trim() }
+                .filter(String::isNotBlank)
+            if (rowContent.joinToString(" ").isBlank()) return null
+
+            val start = lines[lineIndex].start
+            var end = starts.getOrNull(rowIndex + 1)?.let { lines[it.first].start } ?: prompt.length
+            while (end > start && prompt[end - 1].isWhitespace()) end--
+            if (end <= start) return null
+            val question = questions.getOrNull(rowIndex) ?: return null
+            if (question.number != number) return null
+            MatchingQuestionRow(question.id, number, start, end)
+        }
+    }
+
+    private fun createInlineSlots(
+        prompt: String,
+        rows: List<MatchingQuestionRow>,
+    ): Pair<List<MatchingInlineSlot>?, MatchingInlineFallbackReason?> {
+        val allBlanks = placeholder.findAll(prompt).toList()
+        if (allBlanks.isEmpty()) return null to MatchingInlineFallbackReason.NO_EXPLICIT_PLACEHOLDER
+        if (allBlanks.size != rows.size) return null to MatchingInlineFallbackReason.PLACEHOLDER_COUNT_MISMATCH
+
+        val slots = mutableListOf<MatchingInlineSlot>()
+        rows.forEach { row ->
+            val inRow = allBlanks.filter { match -> match.range.first >= row.start && match.range.last + 1 <= row.end }
+            if (inRow.size != 1) return null to MatchingInlineFallbackReason.AMBIGUOUS_PLACEHOLDERS_IN_ROW
+            val match = inRow.single()
+            val start = match.range.first
+            val end = match.range.last + 1
+            if (start < 0 || end > prompt.length || prompt.substring(start, end).any { it == '\r' || it == '\n' }) {
+                return null to MatchingInlineFallbackReason.AMBIGUOUS_PLACEHOLDERS_IN_ROW
+            }
+            slots += MatchingInlineSlot(row.questionId, row.number, start, end)
+        }
+        if (slots.map { it.number } != rows.map { it.number } ||
+            slots.zipWithNext().any { (left, right) -> left.end > right.start }) {
+            return null to MatchingInlineFallbackReason.AMBIGUOUS_PLACEHOLDERS_IN_ROW
+        }
+        return slots to null
     }
 
     private fun countPromptOptions(prompt: String, options: List<Option>): Int {

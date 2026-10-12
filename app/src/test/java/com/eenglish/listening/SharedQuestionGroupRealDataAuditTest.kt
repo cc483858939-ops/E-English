@@ -4,6 +4,7 @@ import com.eenglish.listening.data.assets.PartCodec
 import com.eenglish.listening.data.assets.QuestionLayoutCodec
 import com.eenglish.listening.domain.gapfill.QuestionDisplayItem
 import com.eenglish.listening.domain.gapfill.QuestionLayoutDisplayParser
+import com.eenglish.listening.domain.gapfill.SharedMatchingQuestionGroup
 import com.eenglish.listening.domain.layout.QuestionLayoutValidator
 import com.eenglish.listening.domain.model.ListeningPart
 import com.eenglish.listening.domain.model.Question
@@ -19,6 +20,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -31,6 +33,7 @@ class SharedQuestionGroupRealDataAuditTest {
         val part: ListeningPart,
         val items: List<QuestionDisplayItem>,
         val zipEntries: Set<String>,
+        val questionIdsAndOrderPreserved: Boolean,
     )
 
     private data class PromptKey(
@@ -52,6 +55,7 @@ class SharedQuestionGroupRealDataAuditTest {
 
         val audited = mutableListOf<AuditedPart>()
         val typeCounts = linkedMapOf<String, Int>()
+        QuestionType.values().forEach { typeCounts[it.name] = 0 }
         var layoutSidecarCount = 0
         var questionCount = 0
 
@@ -77,20 +81,37 @@ class SharedQuestionGroupRealDataAuditTest {
                     val items = QuestionLayoutDisplayParser.parse(part.questions, layout?.groups.orEmpty())
                     val sourceIds = part.questions.map { it.id }
                     val displayedQuestions = items.flatMap(::members)
-                    assertEquals("Display ID order changed in ${part.id}", sourceIds, displayedQuestions.map { it.id })
-                    assertEquals("Question ID repeated in ${part.id}", sourceIds.size,
-                        displayedQuestions.map { it.id }.distinct().size)
+                    val displayedIds = displayedQuestions.map { it.id }
+                    val idsAndOrderPreserved = sourceIds == displayedIds && displayedIds.distinct().size == sourceIds.size
+                    assertTrue("Display ID order changed or a question was repeated in ${part.id}", idsAndOrderPreserved)
                     part.questions.forEach { question ->
                         typeCounts[question.type.name] = (typeCounts[question.type.name] ?: 0) + 1
                     }
                     questionCount += part.questions.size
-                    audited += AuditedPart(part, items, zipPaths)
+                    audited += AuditedPart(part, items, zipPaths, idsAndOrderPreserved)
                 }
             }
         }
 
         assertEquals(272, audited.size)
         assertEquals(2720, questionCount)
+
+        val allPartQuestionIdsAndOrderPreserved = audited.all { it.questionIdsAndOrderPreserved }
+        assertTrue(allPartQuestionIdsAndOrderPreserved)
+        val questionModeCounts = linkedMapOf<String, Int>()
+        val modeCountsByType = QuestionType.values().associate { it.name to linkedMapOf<String, Int>() }
+        audited.forEach { source ->
+            source.items.forEach { item ->
+                val mode = displayMode(item)
+                questionModeCounts[mode] = (questionModeCounts[mode] ?: 0) + members(item).size
+                members(item).forEach { question ->
+                    val counts = modeCountsByType.getValue(question.type.name)
+                    counts[mode] = (counts[mode] ?: 0) + 1
+                }
+            }
+        }
+        assertEquals(questionCount, questionModeCounts.values.sum())
+        assertEquals(questionCount, modeCountsByType.values.sumOf { modes -> modes.values.sum() })
 
         val matchingCandidates = audited.flatMap { source ->
             repeatedPromptRuns(source.part.questions) {
@@ -116,9 +137,10 @@ class SharedQuestionGroupRealDataAuditTest {
             }
         }
 
-        val successfulMatching = audited.flatMap { source ->
-            source.items.filterIsInstance<QuestionDisplayItem.SharedMatching>().map { it.group.questions }
+        val successfulMatchingGroups = audited.flatMap { source ->
+            source.items.filterIsInstance<QuestionDisplayItem.SharedMatching>().map { it.group }
         }
+        val successfulMatching = successfulMatchingGroups.map { it.questions }
         val successfulMultipleChoice = audited.flatMap { source ->
             source.items.filterIsInstance<QuestionDisplayItem.SharedMultipleChoice>().map { it.group.questions }
         }
@@ -140,6 +162,14 @@ class SharedQuestionGroupRealDataAuditTest {
         }
         val matchingGroupCount = successfulMatching.count { it.firstOrNull()?.type == QuestionType.MATCHING }
         val imageMatchingGroupCount = successfulMatching.count { it.firstOrNull()?.type == QuestionType.IMAGE_BASED }
+        val ordinaryMatchingGroups = successfulMatchingGroups.filter { it.questions.firstOrNull()?.type == QuestionType.MATCHING }
+        val imageMatchingGroups = successfulMatchingGroups.filter { it.questions.firstOrNull()?.type == QuestionType.IMAGE_BASED }
+        val ordinaryMatchingModes = matchingModeCounts(ordinaryMatchingGroups)
+        val imageMatchingModes = matchingModeCounts(imageMatchingGroups)
+        val inlineFallbackReasons = (ordinaryMatchingGroups + imageMatchingGroups)
+            .filter { it.inlineSlots == null }
+            .groupingBy { it.inlineFallbackReason?.name ?: "UNKNOWN" }
+            .eachCount()
         val multipleChoiceGroupCount = successfulMultipleChoice.size
         val textFallbackGroupCount = successfulTextFallbacks.count { fallback ->
             textCandidates.any { sameIds(fallback, it) }
@@ -156,8 +186,9 @@ class SharedQuestionGroupRealDataAuditTest {
         }
 
         val samples = listOf(
-            sample(audited, "cambridge-7-test-3-part-3", 26..30, "SharedMatching", 0),
-            sample(audited, "cambridge-6-test-3-part-2", 14..17, "SharedMatchingImage", 1),
+            sample(audited, "cambridge-7-test-3-part-3", 26..30, "SharedMatching", 0, "INLINE"),
+            sample(audited, "cambridge-5-test-4-part-4", 37..40, "SharedMatching", 0, "INLINE"),
+            sample(audited, "cambridge-6-test-3-part-2", 14..17, "SharedMatchingImage", 1, "INLINE"),
             sample(audited, "cambridge-5-test-1-part-3", 24..25, "SharedMultipleChoice", 0),
             sample(audited, "cambridge-5-test-1-part-2", 11..19, "ImageGroup", 1),
             sample(audited, "cambridge-5-test-1-part-4", 31..35, "StructuredLayout", 0),
@@ -211,7 +242,7 @@ class SharedQuestionGroupRealDataAuditTest {
             putJsonArray("fallbackDiagnostics") {
                 fallbackDiagnostics.forEach { add(it) }
             }
-            put("allPartQuestionIdsAndOrderPreserved", true)
+            put("allPartQuestionIdsAndOrderPreserved", allPartQuestionIdsAndOrderPreserved)
             putJsonArray("samples") {
                 samples.forEach { result ->
                     add(buildJsonObject {
@@ -231,10 +262,97 @@ class SharedQuestionGroupRealDataAuditTest {
         val reportFile = File(packDirectory.parentFile, "audits/shared-question-display-audit.json")
         requireNotNull(reportFile.parentFile).mkdirs()
         reportFile.writeText(auditJson.encodeToString(JsonObject.serializer(), report))
+
+        val inlineCoverageReport = buildJsonObject {
+            put("generatedAtUtc", Instant.now().toString())
+            put("sourceDirectory", packDirectory.path)
+            put("books", packs.size)
+            put("parts", audited.size)
+            put("questions", questionCount)
+            put("layoutSidecars", layoutSidecarCount)
+            put("allPartQuestionIdsAndOrderPreserved", allPartQuestionIdsAndOrderPreserved)
+            put("questionTypeCoverage", buildJsonObject {
+                QuestionType.values().forEach { type ->
+                    val total = typeCounts.getValue(type.name)
+                    val modes = modeCountsByType.getValue(type.name)
+                    val inPlace = modes.filterKeys(::isInPlaceMode).values.sum()
+                    val waiting = modes.filter { (mode, _) -> isAwaitingMappingMode(mode) ||
+                        type == QuestionType.MATCHING && mode == "SINGLE_QUESTION_CARD_CHOICES" }
+                        .values.sum()
+                    put(type.name, buildJsonObject {
+                        put("totalQuestions", total)
+                        put("inPlaceQuestions", inPlace)
+                        put("nonInlineButUsableQuestions", total - inPlace)
+                        put("awaitingSafeInPlaceMappingQuestions", waiting)
+                        put("displayModes", buildJsonObject {
+                            modes.toSortedMap().forEach { (mode, count) -> put(mode, count) }
+                        })
+                    })
+                }
+            })
+            put("displayModeTotals", buildJsonObject {
+                questionModeCounts.toSortedMap().forEach { (mode, count) -> put(mode, count) }
+            })
+            put("matchingCoverage", buildJsonObject {
+                put("textMatching", matchingModeCounts(ordinaryMatchingGroups))
+                put("imageMatching", matchingModeCounts(imageMatchingGroups))
+                put("parserRejectedCandidateGroups", buildJsonObject {
+                    put("textMatchingGroups", matchingCandidates.count { candidate ->
+                        successfulMatching.none { sameIds(candidate, it) }
+                    })
+                    put("textMatchingQuestions", matchingCandidates.filter { candidate ->
+                        successfulMatching.none { sameIds(candidate, it) }
+                    }.sumOf { it.size })
+                    put("imageMatchingGroups", imageMatchingCandidates.count { candidate ->
+                        successfulMatching.none { sameIds(candidate, it) }
+                    })
+                    put("imageMatchingQuestions", imageMatchingCandidates.filter { candidate ->
+                        successfulMatching.none { sameIds(candidate, it) }
+                    }.sumOf { it.size })
+                })
+                put("inlineFallbackReasonCounts", buildJsonObject {
+                    inlineFallbackReasons.toSortedMap().forEach { (reason, count) -> put(reason, count) }
+                })
+            })
+            put("otherSharedGroupCoverage", buildJsonObject {
+                put("multipleChoiceGroups", multipleChoiceGroupCount)
+                put("multipleChoiceQuestions", successfulMultipleChoice.sumOf { it.size })
+                put("sharedTextFallbackGroups", textFallbackGroupCount)
+                put("sharedTextFallbackQuestions", successfulTextFallbacks.filter { fallback ->
+                    textCandidates.any { sameIds(fallback, it) }
+                }.sumOf { it.size })
+            })
+            put("parserFallbackReasonCounts", buildJsonObject {
+                val counts = linkedMapOf<String, Int>()
+                fallbackDiagnostics.forEach { entry ->
+                    val type = entry["type"]?.jsonPrimitive?.content ?: "unknown"
+                    val reason = entry["reason"]?.jsonPrimitive?.content ?: "unknown"
+                    val key = "$type:$reason"
+                    counts[key] = (counts[key] ?: 0) + 1
+                }
+                counts.toSortedMap().forEach { (reason, count) -> put(reason, count) }
+            })
+            putJsonArray("representativeSamples") {
+                samples.forEach { result ->
+                    add(buildJsonObject {
+                        put("partId", result.partId)
+                        put("questionNumbers", result.questionNumbers.joinToString(","))
+                        put("displayType", result.actualType)
+                        put("matchingMode", result.matchingMode ?: "not-applicable")
+                        put("inlineSlotCount", result.inlineSlotCount)
+                        put("displayedMemberCount", result.displayedMemberCount)
+                        put("imagesExist", result.imagesExist)
+                        put("expectedMatched", result.expectedMatched)
+                    })
+                }
+            }
+        }
+        val inlineCoverageFile = File(packDirectory.parentFile, "audits/inline-answer-coverage-audit.json")
+        inlineCoverageFile.writeText(auditJson.encodeToString(JsonObject.serializer(), inlineCoverageReport))
         println("Shared question audit: books=${packs.size}, parts=${audited.size}, questions=$questionCount, " +
             "matching=$matchingGroupCount, imageMatching=$imageMatchingGroupCount, " +
             "multipleChoice=$multipleChoiceGroupCount, textFallback=$textFallbackGroupCount, " +
-            "remainingRepeatedPrompts=$remainingPromptRuns, report=${reportFile.path}")
+            "remainingRepeatedPrompts=$remainingPromptRuns, report=${reportFile.path}, inlineReport=${inlineCoverageFile.path}")
     }
 
     private data class SampleResult(
@@ -247,6 +365,8 @@ class SharedQuestionGroupRealDataAuditTest {
         val imageCount: Int,
         val imagesExist: Boolean,
         val expectedMatched: Boolean,
+        val matchingMode: String?,
+        val inlineSlotCount: Int,
     )
 
     private fun sample(
@@ -255,6 +375,7 @@ class SharedQuestionGroupRealDataAuditTest {
         range: IntRange,
         expectedType: String,
         expectedImageCount: Int,
+        expectedMatchingMode: String? = null,
     ): SampleResult {
         val source = requireNotNull(audited.singleOrNull { it.part.id == partId }) { "Missing real sample $partId" }
         val expectedQuestions = source.part.questions.filter { it.number in range }
@@ -280,12 +401,62 @@ class SharedQuestionGroupRealDataAuditTest {
             is QuestionDisplayItem.SharedTextFallback -> "SharedTextFallback"
             is QuestionDisplayItem.Single, null -> "Single"
         }
+        val matchingGroup = (item as? QuestionDisplayItem.SharedMatching)?.group
+        val actualMatchingMode = matchingGroup?.let(::matchingMode)
+        val inlineSlotCount = matchingGroup?.inlineSlots?.size ?: 0
+        val slotsAligned = expectedMatchingMode != "INLINE" || (matchingGroup != null && matchingGroup.inlineSlots != null &&
+            matchingGroup.inlineSlots.map { it.questionId } == expectedQuestions.map { it.id } &&
+            matchingGroup.inlineSlots.map { it.number } == range.toList() &&
+            matchingGroup.inlineSlots.all { it.start >= 0 && it.end <= matchingGroup.prompt.length && it.start < it.end })
         val matchedRange = matchedQuestions.map { it.number }.containsAll(range.toList())
         return SampleResult(partId, range.toList(), actualType, matchedQuestions.size, expectedImageCount,
             matchedQuestions.map { it.id }, imagePaths.size, imagesExist,
             actualType == expectedType && matchedRange && matchedQuestions.map { it.number } == range.toList() &&
-                matchedQuestions.map { it.id } == expectedQuestions.map { it.id })
+                matchedQuestions.map { it.id } == expectedQuestions.map { it.id } &&
+                (expectedMatchingMode == null || actualMatchingMode == expectedMatchingMode) && slotsAligned,
+            actualMatchingMode, inlineSlotCount)
     }
+
+    private fun displayMode(item: QuestionDisplayItem): String = when (item) {
+        is QuestionDisplayItem.Single -> if (item.question.isTextInput) "SINGLE_QUESTION_CARD_TEXT_INPUT"
+            else if (item.question.type == QuestionType.IMAGE_BASED) "SINGLE_IMAGE_QUESTION_CHOICES"
+            else "SINGLE_QUESTION_CARD_CHOICES"
+        is QuestionDisplayItem.InlineGroup -> "LEGACY_INLINE_TEXT"
+        is QuestionDisplayItem.StructuredLayout -> "STRUCTURED_LAYOUT_INLINE"
+        is QuestionDisplayItem.ImageGroup -> "IMAGE_GROUP_CENTRAL_INPUT"
+        is QuestionDisplayItem.SharedMatching -> when (matchingMode(item.group)) {
+            "INLINE" -> "MATCHING_INLINE_SELECTION"
+            "QUESTION_ROWS" -> "MATCHING_QUESTION_ROW_SELECTION"
+            else -> "MATCHING_SHARED_PROMPT_FALLBACK"
+        }
+        is QuestionDisplayItem.SharedMultipleChoice -> "SHARED_MULTIPLE_CHOICE_OPTIONS"
+        is QuestionDisplayItem.SharedTextFallback -> "SHARED_TEXT_FALLBACK_QUESTION_CARDS"
+    }
+
+    private fun matchingMode(group: SharedMatchingQuestionGroup): String = when {
+        group.inlineSlots != null -> "INLINE"
+        group.questionRows != null -> "QUESTION_ROWS"
+        else -> "SHARED_PROMPT_FALLBACK"
+    }
+
+    private fun matchingModeCounts(groups: List<SharedMatchingQuestionGroup>) = buildJsonObject {
+        listOf("INLINE", "QUESTION_ROWS", "SHARED_PROMPT_FALLBACK").forEach { mode ->
+            val members = groups.filter { matchingMode(it) == mode }
+            put(mode, buildJsonObject {
+                put("groups", members.size)
+                put("questions", members.sumOf { it.questions.size })
+            })
+        }
+    }
+
+    private fun isInPlaceMode(mode: String): Boolean = mode in setOf(
+        "STRUCTURED_LAYOUT_INLINE", "LEGACY_INLINE_TEXT", "MATCHING_INLINE_SELECTION",
+    )
+
+    private fun isAwaitingMappingMode(mode: String): Boolean = mode in setOf(
+        "SINGLE_QUESTION_CARD_TEXT_INPUT", "IMAGE_GROUP_CENTRAL_INPUT",
+        "SHARED_TEXT_FALLBACK_QUESTION_CARDS", "MATCHING_SHARED_PROMPT_FALLBACK",
+    )
 
     private fun fallbackEntry(kind: String, questions: List<Question>, reason: String): kotlinx.serialization.json.JsonObject =
         buildJsonObject {
