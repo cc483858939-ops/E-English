@@ -95,17 +95,8 @@ private fun StructuredLayoutChildren(
     onCommit: (String) -> Unit,
 ) {
     var index = 0
-    val structuralBlocks = setOf("paragraph", "listItem", "formRow")
     var previousRenderedType: String? = null
     var pendingLineBreaks = 0
-
-    fun structuralSpacing(previous: String?, current: String): androidx.compose.ui.unit.Dp {
-        val previousType = previous ?: return 0.dp
-        if (previousType !in structuralBlocks || current !in structuralBlocks) return 0.dp
-        val previousSpacing = if (previousType == "paragraph") 6.dp else 4.dp
-        val currentSpacing = if (current == "paragraph") 6.dp else 4.dp
-        return maxOf(previousSpacing, currentSpacing)
-    }
 
     while (index < blocks.size) {
         val block = blocks[index]
@@ -117,17 +108,7 @@ private fun StructuredLayoutChildren(
             continue
         }
 
-        val nextIsStructural = block.type in structuralBlocks
-        val previousIsStructural = previousRenderedType?.let { it in structuralBlocks } == true
-        val bothSidesAreStructural = previousIsStructural && nextIsStructural
-        val structureGap = structuralSpacing(previousRenderedType, block.type)
-        val lineBreakGap = when {
-            pendingLineBreaks == 0 || bothSidesAreStructural -> 0.dp
-            previousRenderedType == null -> 10.dp
-            pendingLineBreaks > 1 -> 10.dp
-            else -> 0.dp // Adjacent rendered blocks already put a single break on the next line.
-        }
-        val gap = maxOf(structureGap, lineBreakGap)
+        val gap = structuredLayoutGapDp(previousRenderedType, block.type, pendingLineBreaks)
         if (gap > 0.dp) Spacer(Modifier.height(gap))
 
         if (block.type in setOf("text", "fixedText", "blank")) {
@@ -177,15 +158,13 @@ private fun StructuredLayoutChildren(
             }
             else -> Unit // The installer validator rejects unsupported block types.
         }
-        if (block.type in structuralBlocks) previousRenderedType = block.type
+        if (block.type in setOf("paragraph", "listItem", "formRow")) previousRenderedType = block.type
         pendingLineBreaks = 0
         index++
     }
 
-    // A source break at the end has no following content to carry its natural line separation.
-    if (pendingLineBreaks > 0) {
-        Spacer(Modifier.height(10.dp))
-    }
+    val trailingGap = structuredLayoutGapDp(previousRenderedType, null, pendingLineBreaks)
+    if (trailingGap > 0.dp) Spacer(Modifier.height(trailingGap))
 }
 
 @Composable

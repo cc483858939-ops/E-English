@@ -22,6 +22,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import com.eenglish.listening.domain.model.Question
 import com.eenglish.listening.domain.model.QuestionLayoutGroup
 import com.eenglish.listening.domain.gapfill.GapFillGroup
+import com.eenglish.listening.domain.gapfill.SharedImageQuestionGroup
 import kotlin.math.roundToInt
 
 @Composable
@@ -34,6 +35,7 @@ fun ResizableQuestionPanel(question: Question, selected: String?, expanded: Bool
     onResizeStarted: () -> Unit, onResizeDelta: (Float) -> Unit, onResizeStopped: () -> Unit,
     onSetRatio: (Float) -> Unit, inlineGroup: GapFillGroup? = null,
     structuredGroup: QuestionLayoutGroup? = null, structuredQuestions: List<Question> = emptyList(),
+    imageGroup: SharedImageQuestionGroup? = null,
     answers: Map<String, String> = emptyMap(), saving: Boolean = false,
     dirty: Boolean = false,
     onGroupSelect: (String, String) -> Unit = { _, _ -> },
@@ -98,6 +100,10 @@ fun ResizableQuestionPanel(question: Question, selected: String?, expanded: Bool
                             submitted, saving, dirty, activeQuestionNumber = question.number,
                             onActivate = onActivate, onSelect = onGroupSelect, onEdit = onGroupEdit,
                             onCommit = onGroupCommit)
+                    } else if (imageGroup != null) {
+                        ImageQuestionGroup(imageGroup, answers, editable, submitted, saving, dirty,
+                            activeQuestionNumber = question.number, onActivate = onActivate,
+                            onSelect = onGroupSelect)
                     } else {
                         QuestionCard(question, selected, editable, showResult = submitted, onSelect = onSelect)
                     }

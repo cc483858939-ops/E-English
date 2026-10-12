@@ -89,6 +89,7 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
                         is QuestionDisplayItem.Single -> entry.question.id
                         is QuestionDisplayItem.InlineGroup -> "inline-${entry.group.questions.first().id}"
                         is QuestionDisplayItem.StructuredLayout -> "layout-${entry.group.groupId}"
+                        is QuestionDisplayItem.ImageGroup -> "image-${entry.group.questions.first().id}"
                     } }) { entry ->
                         when (entry) {
                             is QuestionDisplayItem.Single -> {
@@ -109,6 +110,11 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
                                 submitted = state.submitted, saving = state.saving,
                                 dirty = state.inlineDrafts.isNotEmpty(), onSelect = onSelect,
                                 onEdit = onInlineEdit, onCommit = onInlineCommit)
+                            is QuestionDisplayItem.ImageGroup -> ImageQuestionGroup(
+                                entry.group, state.answers + state.inlineDrafts,
+                                editable = !state.submitted && !state.submitting && state.attempt != null,
+                                submitted = state.submitted, saving = state.saving,
+                                dirty = state.inlineDrafts.isNotEmpty(), onSelect = onSelect)
                         }
                     }
                     item {

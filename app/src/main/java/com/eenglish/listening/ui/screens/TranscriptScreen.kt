@@ -51,6 +51,8 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
         .firstOrNull { item -> item.group.questions.any { it.id == question?.id } }?.group
     val activeStructured = displayItems.asSequence().filterIsInstance<QuestionDisplayItem.StructuredLayout>()
         .firstOrNull { item -> item.questions.any { it.id == question?.id } }
+    val activeImageGroup = displayItems.asSequence().filterIsInstance<QuestionDisplayItem.ImageGroup>()
+        .firstOrNull { item -> item.group.questions.any { it.id == question?.id } }?.group
     val transcriptScroll = rememberScrollState()
     val questionScroll = rememberScrollState()
     var readingOffsetToRestore by remember { mutableStateOf<Int?>(null) }
@@ -60,7 +62,8 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
     var restoreRequest by remember { mutableIntStateOf(0) }
     var cardHeaderHeightPx by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
-    LaunchedEffect(activeGroup?.questions?.first()?.id ?: activeStructured?.group?.groupId ?: question?.id) {
+    LaunchedEffect(activeGroup?.questions?.first()?.id ?: activeStructured?.group?.groupId ?:
+        activeImageGroup?.questions?.first()?.id ?: question?.id) {
         questionScroll.scrollTo(0)
     }
     LaunchedEffect(restoreRequest) {
@@ -200,6 +203,7 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
                             saving = state.saving, dirty = state.inlineDrafts.isNotEmpty(),
                             onGroupSelect = onSelect, onGroupEdit = onInlineEdit,
                             onGroupCommit = onInlineCommit, onActivate = { questionNumber = it },
+                            imageGroup = activeImageGroup,
                             onHeaderSize = { cardHeaderHeightPx = it },
                             onResizeStarted = {
                                 resizeReadingAnchor = transcriptScroll.value

@@ -57,8 +57,14 @@ object QuestionLayoutDisplayParser {
                     index += first.group.questions.size
                 }
                 else -> {
-                    result += QuestionDisplayItem.Single(questions[index])
-                    index++
+                    val imageGroup = ImageQuestionGroupParser.parseAtStart(legacySlice)
+                    if (imageGroup != null) {
+                        result += QuestionDisplayItem.ImageGroup(imageGroup)
+                        index += imageGroup.questions.size
+                    } else {
+                        result += QuestionDisplayItem.Single(questions[index])
+                        index++
+                    }
                 }
             }
         }

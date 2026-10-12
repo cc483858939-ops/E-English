@@ -17,6 +17,7 @@ sealed interface QuestionDisplayItem {
     data class Single(val question: Question) : QuestionDisplayItem
     data class InlineGroup(val group: GapFillGroup) : QuestionDisplayItem
     data class StructuredLayout(val group: QuestionLayoutGroup, val questions: List<Question>) : QuestionDisplayItem
+    data class ImageGroup(val group: SharedImageQuestionGroup) : QuestionDisplayItem
 }
 
 /**

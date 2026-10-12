@@ -96,6 +96,33 @@ class QuestionLayoutTest {
         assertTrue(projection.copyVisible(0, projection.text.length).contains("_____ and _____"))
     }
 
+    @Test fun structuredLayoutKeepsPriorityBeforeAnImageQuestionGroup() {
+        val basePart = part()
+        val (layout, _) = layout(basePart)
+        val imagePrompt = buildString {
+            appendLine("Questions 36-44")
+            appendLine("Complete the table below.")
+            appendLine("Write one answer for each question.")
+            appendLine()
+            (36..44).forEach { appendLine("$it ______") }
+        }.trimEnd()
+        val imageInstructions = imagePrompt.lines().take(3).joinToString("\n")
+        val imageQuestions = (36..44).map { number ->
+            Question("synthetic-image-q$number", number, QuestionType.TABLE_COMPLETION,
+                imagePrompt, emptyList(), "answer-$number", instructions = imageInstructions,
+                images = listOf("synthetic-table.png"), wordLimit = WordLimit(2, 0))
+        }
+
+        val display = QuestionLayoutDisplayParser.parse(
+            listOf(basePart.questions.first()) + imageQuestions,
+            layout.groups,
+        )
+
+        assertTrue(display.first() is QuestionDisplayItem.StructuredLayout)
+        assertTrue(display.last() is QuestionDisplayItem.ImageGroup)
+        assertEquals((36..44).toList(), (display.last() as QuestionDisplayItem.ImageGroup).group.questions.map { it.number })
+    }
+
     @Test fun layoutForAnotherAttemptSnapshotFallsBackWhenItsSlotShapeDiffers() {
         val part = part()
         val (layout, _) = layout(part)
