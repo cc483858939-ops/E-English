@@ -2,13 +2,14 @@ package com.eenglish.listening
 
 import android.text.Spanned
 import android.text.style.ReplacementSpan
+import android.widget.EditText
 import android.widget.TextView
 import androidx.compose.runtime.*
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.action.ViewActions.click
-import androidx.test.espresso.action.ViewActions.typeText
+import androidx.test.espresso.action.ViewActions.replaceText
 import androidx.test.espresso.matcher.ViewMatchers.withTagValue
 import androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom
 import androidx.test.espresso.assertion.ViewAssertions.matches
@@ -69,8 +70,16 @@ class StructuredLayoutUiTest {
             assertEquals(2, display.getSpans(0, display.length, ReplacementSpan::class.java).size)
             assertEquals(2, display.count { it == '\uFFFC' })
         }
-        onView(withTagValue(equalTo("inline-input-26"))).perform(click(), typeText("north"))
-        onView(withTagValue(equalTo("inline-input-26-2"))).perform(click(), typeText("west"))
+        onView(withTagValue(equalTo("inline-input-26"))).perform(click(), replaceText("north"))
+        onView(withTagValue(equalTo("inline-input-26"))).check { view, error ->
+            if (error != null) throw error
+            assertEquals("north", (view as EditText).text.toString())
+        }
+        onView(withTagValue(equalTo("inline-input-26-2"))).perform(click(), replaceText("west"))
+        onView(withTagValue(equalTo("inline-input-26-2"))).check { view, error ->
+            if (error != null) throw error
+            assertEquals("west", (view as EditText).text.toString())
+        }
         compose.runOnIdle {
             assertEquals("north and west", answers.value[question.id])
             assertEquals(1, Grader.grade(listOf(question), answers.value).correctCount)

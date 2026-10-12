@@ -2,7 +2,7 @@ package com.eenglish.listening.ui.screens
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -20,6 +20,7 @@ import com.eenglish.listening.domain.gapfill.QuestionLayoutDisplayParser
 import com.eenglish.listening.domain.gapfill.QuestionDisplayItem
 import java.text.DateFormat
 import java.util.Date
+import kotlinx.coroutines.launch
 
 @Composable
 fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Unit, onSeek: (Long) -> Unit,
@@ -29,6 +30,8 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
     onInlineEdit: (String, String) -> Unit = onSelect,
     onInlineCommit: (String) -> Unit = {}, onFlushInline: () -> Unit = {}) {
     val listState = rememberLazyListState()
+    val interactionScope = rememberCoroutineScope()
+    var activeQuestionNumber by remember { mutableStateOf<Int?>(null) }
     val displayItems = remember(state.questions, state.questionLayout) {
         QuestionLayoutDisplayParser.parse(state.questions, state.questionLayout?.groups.orEmpty())
     }
@@ -85,7 +88,7 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
                             }
                         } else Text("已保存 ${state.questions.size - Grader.missingCount(state.questions, state.answers)} / ${state.questions.size} 题", modifier = Modifier.padding(vertical = 8.dp))
                     }
-                    items(displayItems, key = { entry -> when (entry) {
+                    itemsIndexed(displayItems, key = { _, entry -> when (entry) {
                         is QuestionDisplayItem.Single -> entry.question.id
                         is QuestionDisplayItem.InlineGroup -> "inline-${entry.group.questions.first().id}"
                         is QuestionDisplayItem.StructuredLayout -> "layout-${entry.group.groupId}"
@@ -93,7 +96,11 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
                         is QuestionDisplayItem.SharedMatching -> "matching-${entry.group.questions.first().id}"
                         is QuestionDisplayItem.SharedMultipleChoice -> "multiple-choice-${entry.group.groupId}"
                         is QuestionDisplayItem.SharedTextFallback -> "text-fallback-${entry.group.questions.first().id}"
-                    } }) { entry ->
+                    } }) { displayIndex, entry ->
+                        val onActivateInput: (Int) -> Unit = { number ->
+                            activeQuestionNumber = number
+                            interactionScope.launch { listState.scrollToItem(displayIndex + 1) }
+                        }
                         when (entry) {
                             is QuestionDisplayItem.Single -> {
                                 val question = entry.question
@@ -104,18 +111,24 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
                             is QuestionDisplayItem.InlineGroup -> InlineGapFillGroup(
                                 entry.group, state.answers + state.inlineDrafts,
                                 editable = !state.submitted && !state.submitting && state.attempt != null,
+                                activeQuestionNumber = activeQuestionNumber,
+                                onActivate = onActivateInput,
                                 submitted = state.submitted,
                                 saving = state.saving, dirty = state.inlineDrafts.isNotEmpty(),
                                 onSelect = onSelect, onEdit = onInlineEdit, onCommit = onInlineCommit)
                             is QuestionDisplayItem.StructuredLayout -> StructuredLayoutGroup(
                                 entry.group, entry.questions, state.answers + state.inlineDrafts,
                                 editable = !state.submitted && !state.submitting && state.attempt != null,
+                                activeQuestionNumber = activeQuestionNumber,
+                                onActivate = onActivateInput,
                                 submitted = state.submitted, saving = state.saving,
                                 dirty = state.inlineDrafts.isNotEmpty(), onSelect = onSelect,
                                 onEdit = onInlineEdit, onCommit = onInlineCommit)
                             is QuestionDisplayItem.ImageGroup -> ImageQuestionGroup(
                                 entry.group, state.answers + state.inlineDrafts,
                                 editable = !state.submitted && !state.submitting && state.attempt != null,
+                                activeQuestionNumber = activeQuestionNumber,
+                                onActivate = onActivateInput,
                                 submitted = state.submitted, saving = state.saving,
                                 dirty = state.inlineDrafts.isNotEmpty(), onSelect = onSelect)
                             is QuestionDisplayItem.SharedMatching -> SharedMatchingGroupView(
@@ -127,6 +140,7 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
                             is QuestionDisplayItem.SharedTextFallback -> SharedTextFallbackGroupView(
                                 entry.group, state.answers + state.inlineDrafts,
                                 editable = !state.submitted && !state.submitting && state.attempt != null,
+                                activeQuestionNumber = activeQuestionNumber,
                                 submitted = state.submitted, onSelect = onSelect)
                         }
                     }
