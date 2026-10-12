@@ -21,14 +21,17 @@ val LocalAnswerSession = staticCompositionLocalOf<String?> { null }
 val LocalAnswerSaving = staticCompositionLocalOf { false }
 
 @Composable
-fun QuestionCard(question: Question, selected: String?, editable: Boolean, showResult: Boolean = false, onSelect: (String) -> Unit) {
+fun QuestionCard(question: Question, selected: String?, editable: Boolean, showResult: Boolean = false,
+    showPrompt: Boolean = true, showInputInstructions: Boolean = true, onSelect: (String) -> Unit) {
     Column(Modifier.fillMaxWidth().padding(vertical = 12.dp).selectableGroup()) {
-        Text("Q.${question.number}", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.testTag("question-${question.number}"))
-        AnnotatableText(remember(question.id, question.prompt) {
-            AnnotationDocument.single(question.prompt, "question", "${question.id}/prompt", "und") },
-            style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(vertical = 16.dp), viewTag = "prompt-${question.number}")
-        question.images.forEach { QuestionImage(it) }
+        if (showPrompt) {
+            Text("Q.${question.number}", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.testTag("question-${question.number}"))
+            AnnotatableText(remember(question.id, question.prompt) {
+                AnnotationDocument.single(question.prompt, "question", "${question.id}/prompt", "und") },
+                style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(vertical = 16.dp), viewTag = "prompt-${question.number}")
+            question.images.forEach { QuestionImage(it) }
+        }
         if (question.type == QuestionType.MULTIPLE_CHOICE) {
             Text("Questions ${question.groupNumbers.joinToString(", ")} · 选择 ${question.groupNumbers.size} 项，顺序不限；每项计 1 分",
                 style = MaterialTheme.typography.labelMedium)
@@ -44,7 +47,9 @@ fun QuestionCard(question: Question, selected: String?, editable: Boolean, showR
                 if (value.length <= 512) { draft = value; onSelect(value) }
             }, enabled = editable, label = { Text("Q.${question.number} 答案") },
                 modifier = Modifier.fillMaxWidth().testTag("input-${question.number}").onFocusChanged { focused = it.isFocused },
-                supportingText = { Text(question.instructions.ifBlank { "按题目规定填写单词或数字" }) })
+                supportingText = if (showInputInstructions) {
+                    { Text(question.instructions.ifBlank { "按题目规定填写单词或数字" }) }
+                } else null)
             }
         }
         val multiple = question.type == QuestionType.MULTIPLE_CHOICE

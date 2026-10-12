@@ -62,12 +62,42 @@ object QuestionLayoutDisplayParser {
                         result += QuestionDisplayItem.ImageGroup(imageGroup)
                         index += imageGroup.questions.size
                     } else {
-                        result += QuestionDisplayItem.Single(questions[index])
-                        index++
+                        val matchingGroup = SharedMatchingGroupParser.parseAtStart(legacySlice)
+                        if (matchingGroup != null) {
+                            result += QuestionDisplayItem.SharedMatching(matchingGroup)
+                            index += matchingGroup.questions.size
+                        } else {
+                            val multipleChoiceGroup = SharedMultipleChoiceGroupParser.parseAtStart(legacySlice)
+                            if (multipleChoiceGroup != null) {
+                                result += QuestionDisplayItem.SharedMultipleChoice(multipleChoiceGroup)
+                                index += multipleChoiceGroup.questions.size
+                            } else {
+                                val textFallback = SharedTextFallbackGroupParser.parseAtStart(legacySlice)
+                                if (textFallback != null) {
+                                    result += QuestionDisplayItem.SharedTextFallback(textFallback)
+                                    index += textFallback.questions.size
+                                } else {
+                                    result += QuestionDisplayItem.Single(questions[index])
+                                    index++
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
-        return result
+        val sourceIds = questions.map { it.id }
+        val displayedIds = result.flatMap { item ->
+            when (item) {
+                is QuestionDisplayItem.Single -> listOf(item.question.id)
+                is QuestionDisplayItem.InlineGroup -> item.group.questions.map { it.id }
+                is QuestionDisplayItem.StructuredLayout -> item.questions.map { it.id }
+                is QuestionDisplayItem.ImageGroup -> item.group.questions.map { it.id }
+                is QuestionDisplayItem.SharedMatching -> item.group.questions.map { it.id }
+                is QuestionDisplayItem.SharedMultipleChoice -> item.group.questions.map { it.id }
+                is QuestionDisplayItem.SharedTextFallback -> item.group.questions.map { it.id }
+            }
+        }
+        return if (displayedIds == sourceIds) result else questions.map { QuestionDisplayItem.Single(it) }
     }
 }

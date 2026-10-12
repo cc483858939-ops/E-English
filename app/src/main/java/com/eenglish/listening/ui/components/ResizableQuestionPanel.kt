@@ -23,6 +23,9 @@ import com.eenglish.listening.domain.model.Question
 import com.eenglish.listening.domain.model.QuestionLayoutGroup
 import com.eenglish.listening.domain.gapfill.GapFillGroup
 import com.eenglish.listening.domain.gapfill.SharedImageQuestionGroup
+import com.eenglish.listening.domain.gapfill.SharedMatchingQuestionGroup
+import com.eenglish.listening.domain.gapfill.SharedMultipleChoiceQuestionGroup
+import com.eenglish.listening.domain.gapfill.SharedTextFallbackQuestionGroup
 import kotlin.math.roundToInt
 
 @Composable
@@ -36,6 +39,9 @@ fun ResizableQuestionPanel(question: Question, selected: String?, expanded: Bool
     onSetRatio: (Float) -> Unit, inlineGroup: GapFillGroup? = null,
     structuredGroup: QuestionLayoutGroup? = null, structuredQuestions: List<Question> = emptyList(),
     imageGroup: SharedImageQuestionGroup? = null,
+    sharedMatchingGroup: SharedMatchingQuestionGroup? = null,
+    sharedMultipleChoiceGroup: SharedMultipleChoiceQuestionGroup? = null,
+    sharedTextFallbackGroup: SharedTextFallbackQuestionGroup? = null,
     answers: Map<String, String> = emptyMap(), saving: Boolean = false,
     dirty: Boolean = false,
     onGroupSelect: (String, String) -> Unit = { _, _ -> },
@@ -104,6 +110,16 @@ fun ResizableQuestionPanel(question: Question, selected: String?, expanded: Bool
                         ImageQuestionGroup(imageGroup, answers, editable, submitted, saving, dirty,
                             activeQuestionNumber = question.number, onActivate = onActivate,
                             onSelect = onGroupSelect)
+                    } else if (sharedMatchingGroup != null) {
+                        SharedMatchingGroupView(sharedMatchingGroup, answers, editable, submitted,
+                            activeQuestionNumber = question.number, onActivate = onActivate,
+                            onSelect = onGroupSelect)
+                    } else if (sharedMultipleChoiceGroup != null) {
+                        SharedMultipleChoiceGroupView(sharedMultipleChoiceGroup, answers, editable, submitted, saving,
+                            activeQuestionNumber = question.number, onSelect = onGroupSelect)
+                    } else if (sharedTextFallbackGroup != null) {
+                        SharedTextFallbackGroupView(sharedTextFallbackGroup, answers, editable, submitted,
+                            activeQuestionNumber = question.number, onSelect = onGroupSelect)
                     } else {
                         QuestionCard(question, selected, editable, showResult = submitted, onSelect = onSelect)
                     }

@@ -53,6 +53,12 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
         .firstOrNull { item -> item.questions.any { it.id == question?.id } }
     val activeImageGroup = displayItems.asSequence().filterIsInstance<QuestionDisplayItem.ImageGroup>()
         .firstOrNull { item -> item.group.questions.any { it.id == question?.id } }?.group
+    val activeMatching = displayItems.asSequence().filterIsInstance<QuestionDisplayItem.SharedMatching>()
+        .firstOrNull { item -> item.group.questions.any { it.id == question?.id } }?.group
+    val activeMultipleChoice = displayItems.asSequence().filterIsInstance<QuestionDisplayItem.SharedMultipleChoice>()
+        .firstOrNull { item -> item.group.questions.any { it.id == question?.id } }?.group
+    val activeTextFallback = displayItems.asSequence().filterIsInstance<QuestionDisplayItem.SharedTextFallback>()
+        .firstOrNull { item -> item.group.questions.any { it.id == question?.id } }?.group
     val transcriptScroll = rememberScrollState()
     val questionScroll = rememberScrollState()
     var readingOffsetToRestore by remember { mutableStateOf<Int?>(null) }
@@ -63,7 +69,8 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
     var cardHeaderHeightPx by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
     LaunchedEffect(activeGroup?.questions?.first()?.id ?: activeStructured?.group?.groupId ?:
-        activeImageGroup?.questions?.first()?.id ?: question?.id) {
+        activeImageGroup?.questions?.first()?.id ?: activeMatching?.questions?.first()?.id ?:
+        activeMultipleChoice?.groupId ?: activeTextFallback?.questions?.first()?.id ?: question?.id) {
         questionScroll.scrollTo(0)
     }
     LaunchedEffect(restoreRequest) {
@@ -204,6 +211,9 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
                             onGroupSelect = onSelect, onGroupEdit = onInlineEdit,
                             onGroupCommit = onInlineCommit, onActivate = { questionNumber = it },
                             imageGroup = activeImageGroup,
+                            sharedMatchingGroup = activeMatching,
+                            sharedMultipleChoiceGroup = activeMultipleChoice,
+                            sharedTextFallbackGroup = activeTextFallback,
                             onHeaderSize = { cardHeaderHeightPx = it },
                             onResizeStarted = {
                                 resizeReadingAnchor = transcriptScroll.value
