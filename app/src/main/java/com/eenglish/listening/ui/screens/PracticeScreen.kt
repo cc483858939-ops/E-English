@@ -1,5 +1,6 @@
 package com.eenglish.listening.ui.screens
 
+import android.view.ViewTreeObserver
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -8,8 +9,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.eenglish.listening.audio.AudioState
 import com.eenglish.listening.ui.components.*
 import com.eenglish.listening.viewmodel.PracticeUiState
@@ -20,7 +24,6 @@ import com.eenglish.listening.domain.gapfill.QuestionLayoutDisplayParser
 import com.eenglish.listening.domain.gapfill.QuestionDisplayItem
 import java.text.DateFormat
 import java.util.Date
-import kotlinx.coroutines.launch
 
 @Composable
 fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Unit, onSeek: (Long) -> Unit,
@@ -30,7 +33,7 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
     onInlineEdit: (String, String) -> Unit = onSelect,
     onInlineCommit: (String) -> Unit = {}, onFlushInline: () -> Unit = {}) {
     val listState = rememberLazyListState()
-    val interactionScope = rememberCoroutineScope()
+    val imeVisible = rememberImeVisible()
     var activeQuestionNumber by remember { mutableStateOf<Int?>(null) }
     val displayItems = remember(state.questions, state.questionLayout) {
         QuestionLayoutDisplayParser.parse(state.questions, state.questionLayout?.groups.orEmpty())
@@ -52,12 +55,14 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
             TextButton(onClick = { onFlushInline(); onViewTranscript() }, enabled = state.part != null) { Text("查看原文") }
         }
     }, bottomBar = {
-        Button(onClick = if (state.submitted) onNew else onSubmit,
-            enabled = state.attempt != null && !state.saving && !state.submitting,
-            modifier = Modifier.fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
-                .padding(horizontal = 16.dp, vertical = 8.dp).testTag("practice-submit")) {
-            Text(if (resumeDraft) "继续未完成练习" else if (state.submitted) "重新练习" else if (state.saving) "正在保存…" else "提交答案")
+        if (!imeVisible) {
+            Button(onClick = if (state.submitted) onNew else onSubmit,
+                enabled = state.attempt != null && !state.saving && !state.submitting,
+                modifier = Modifier.fillMaxWidth()
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
+                    .padding(horizontal = 16.dp, vertical = 8.dp).testTag("practice-submit")) {
+                Text(if (resumeDraft) "继续未完成练习" else if (state.submitted) "重新练习" else if (state.saving) "正在保存…" else "提交答案")
+            }
         }
     }) { insets ->
         Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
@@ -96,10 +101,9 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
                         is QuestionDisplayItem.SharedMatching -> "matching-${entry.group.questions.first().id}"
                         is QuestionDisplayItem.SharedMultipleChoice -> "multiple-choice-${entry.group.groupId}"
                         is QuestionDisplayItem.SharedTextFallback -> "text-fallback-${entry.group.questions.first().id}"
-                    } }) { displayIndex, entry ->
+                    } }) { _, entry ->
                         val onActivateInput: (Int) -> Unit = { number ->
                             activeQuestionNumber = number
-                            interactionScope.launch { listState.scrollToItem(displayIndex + 1) }
                         }
                         when (entry) {
                             is QuestionDisplayItem.Single -> {
@@ -159,4 +163,23 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
             }
         }
     }
+}
+
+@Composable
+private fun rememberImeVisible(): Boolean {
+    val view = LocalView.current
+    val visible = remember(view) { mutableStateOf(false) }
+    DisposableEffect(view) {
+        val listener = ViewTreeObserver.OnGlobalLayoutListener {
+            visible.value = ViewCompat.getRootWindowInsets(view)
+                ?.isVisible(WindowInsetsCompat.Type.ime()) == true
+        }
+        val observer = view.viewTreeObserver
+        observer.addOnGlobalLayoutListener(listener)
+        listener.onGlobalLayout()
+        onDispose {
+            if (observer.isAlive) observer.removeOnGlobalLayoutListener(listener)
+        }
+    }
+    return visible.value
 }

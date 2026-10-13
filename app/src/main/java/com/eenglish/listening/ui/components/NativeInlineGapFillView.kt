@@ -106,11 +106,14 @@ class NativeInlineGapFillView(context: Context) : FrameLayout(context) {
         row.addView(input, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         row.setOnClickListener {
             if (enabledForEdit) {
+                val alreadyFocused = input.hasFocus()
                 input.requestFocus()
                 val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
                 input.post {
                     imm.showSoftInput(input, InputMethodManager.SHOW_IMPLICIT)
-                    input.requestRectangleOnScreen(Rect(0, 0, input.width, input.height))
+                    // A focus change requests visibility from the nearest scroll parent below.
+                    // If this editor already had focus, the listener will not run again.
+                    if (alreadyFocused && input.hasFocus()) requestEditorOnScreen(input)
                 }
             }
         }
@@ -119,9 +122,7 @@ class NativeInlineGapFillView(context: Context) : FrameLayout(context) {
             if (focused) {
                 currentActiveNumber = number
                 onActivated(number)
-                input.post {
-                    input.requestRectangleOnScreen(Rect(0, 0, input.width, input.height))
-                }
+                requestEditorOnScreen(input)
             } else {
                 onBlur(id)
             }
@@ -145,6 +146,17 @@ class NativeInlineGapFillView(context: Context) : FrameLayout(context) {
         })
         addView(row, LayoutParams(boxWidth, touchTargetHeight))
         return editor
+    }
+
+    private fun requestEditorOnScreen(input: EditText) {
+        input.postOnAnimation {
+            if (input.hasFocus() && input.width > 0 && input.height > 0) {
+                // Let the AndroidView interop ask its Compose scroll parent to move only
+                // enough to expose this exact editor. PracticeScreen must not scroll the
+                // entire LazyColumn item in response to the same focus event.
+                input.requestRectangleOnScreen(Rect(0, 0, input.width, input.height), false)
+            }
+        }
     }
 
     private fun refreshAppearance(wrong: Set<Int> = emptySet()) {
