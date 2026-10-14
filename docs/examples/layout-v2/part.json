@@ -1,0 +1,210 @@
+{
+  "schemaVersion": 2,
+  "id": "example-part",
+  "examType": "synthetic",
+  "book": 5,
+  "test": 1,
+  "part": 1,
+  "title": "Synthetic layout examples",
+  "instructions": "Answer the examples.",
+  "audioPath": "listening/example-part/audio.mp3",
+  "audioSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "transcript": {
+    "english": "Example audio.",
+    "chinese": "示例音频。",
+    "segments": [
+      {
+        "english": "Example audio.",
+        "chinese": "示例音频。"
+      }
+    ]
+  },
+  "questions": [
+    {
+      "id": "q1",
+      "number": 1,
+      "type": "IMAGE_BASED",
+      "prompt": "Choose the shape.",
+      "options": [
+        {
+          "id": "A",
+          "text": "Square"
+        },
+        {
+          "id": "B",
+          "text": "Circle"
+        }
+      ],
+      "correctAnswer": "A",
+      "images": [
+        "map.png"
+      ]
+    },
+    {
+      "id": "q2",
+      "number": 2,
+      "type": "MULTIPLE_CHOICE",
+      "prompt": "Select two colors.",
+      "options": [
+        {
+          "id": "A",
+          "text": "Red"
+        },
+        {
+          "id": "B",
+          "text": "Blue"
+        },
+        {
+          "id": "C",
+          "text": "Gold"
+        }
+      ],
+      "correctAnswer": "A",
+      "instructions": "Choose TWO.",
+      "groupId": "mc-2-3",
+      "groupNumbers": [
+        2,
+        3
+      ]
+    },
+    {
+      "id": "q3",
+      "number": 3,
+      "type": "MULTIPLE_CHOICE",
+      "prompt": "Select two colors.",
+      "options": [
+        {
+          "id": "A",
+          "text": "Red"
+        },
+        {
+          "id": "B",
+          "text": "Blue"
+        },
+        {
+          "id": "C",
+          "text": "Gold"
+        }
+      ],
+      "correctAnswer": "C",
+      "instructions": "Choose TWO.",
+      "groupId": "mc-2-3",
+      "groupNumbers": [
+        2,
+        3
+      ]
+    },
+    {
+      "id": "q4",
+      "number": 4,
+      "type": "MATCHING",
+      "prompt": "First direction.",
+      "options": [
+        {
+          "id": "X",
+          "text": "North"
+        },
+        {
+          "id": "Y",
+          "text": "South"
+        }
+      ],
+      "correctAnswer": "X",
+      "instructions": "Match each item. Use each option once."
+    },
+    {
+      "id": "q5",
+      "number": 5,
+      "type": "MATCHING",
+      "prompt": "Second direction.",
+      "options": [
+        {
+          "id": "X",
+          "text": "North"
+        },
+        {
+          "id": "Y",
+          "text": "South"
+        }
+      ],
+      "correctAnswer": "Y",
+      "instructions": "Match each item. Use each option once."
+    },
+    {
+      "id": "q6",
+      "number": 6,
+      "type": "TEXT_INPUT",
+      "prompt": "Name a color.",
+      "options": [],
+      "correctAnswer": "blue",
+      "wordLimit": {
+        "maxWords": 2,
+        "maxNumbers": 0,
+        "numberOnly": false,
+        "wordsOrNumber": false
+      }
+    },
+    {
+      "id": "q7",
+      "number": 7,
+      "type": "TEXT_INPUT",
+      "prompt": "Complete two terms.",
+      "options": [],
+      "correctAnswer": "sun and moon",
+      "wordLimit": {
+        "maxWords": 2,
+        "maxNumbers": 0,
+        "numberOnly": false,
+        "wordsOrNumber": false
+      },
+      "instructions": "and",
+      "answerSeparator": "and"
+    },
+    {
+      "id": "q8",
+      "number": 8,
+      "type": "TABLE_COMPLETION",
+      "prompt": "Object",
+      "options": [],
+      "correctAnswer": "star",
+      "wordLimit": {
+        "maxWords": 2,
+        "maxNumbers": 0,
+        "numberOnly": false,
+        "wordsOrNumber": false
+      },
+      "context": "Name Value"
+    },
+    {
+      "id": "q9",
+      "number": 9,
+      "type": "FLOW_COMPLETION",
+      "prompt": "Start",
+      "options": [],
+      "correctAnswer": "finish",
+      "wordLimit": {
+        "maxWords": 2,
+        "maxNumbers": 0,
+        "numberOnly": false,
+        "wordsOrNumber": false
+      }
+    },
+    {
+      "id": "q10",
+      "number": 10,
+      "type": "IMAGE_BASED",
+      "prompt": "Label the marker.",
+      "options": [],
+      "correctAnswer": "point",
+      "wordLimit": {
+        "maxWords": 2,
+        "maxNumbers": 0,
+        "numberOnly": false,
+        "wordsOrNumber": false
+      },
+      "images": [
+        "map.png"
+      ]
+    }
+  ]
+}

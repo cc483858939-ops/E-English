@@ -1,0 +1,720 @@
+{
+  "schemaVersion": 2,
+  "partId": "example-part",
+  "basePartSha256": "592a241c1b0d1e87b674d8ee43e8df3c035900569f8df9411380cff8ec63c9b9",
+  "groups": [
+    {
+      "groupId": "example-single",
+      "questionIds": [
+        "q1"
+      ],
+      "promptHashes": {
+        "q1": "64de412810fefee3352127cef7d56903b8a451ce8a44d43d118b87e234c31756"
+      },
+      "instructions": [],
+      "optionPools": [
+        {
+          "poolId": "pool-shapes",
+          "questionIds": [
+            "q1"
+          ],
+          "optionIds": [
+            "A",
+            "B"
+          ]
+        }
+      ],
+      "slots": [
+        {
+          "slotId": "s1-0",
+          "questionId": "q1",
+          "slotIndex": 0,
+          "kind": "singleChoice"
+        }
+      ],
+      "responses": [
+        {
+          "kind": "singleChoice",
+          "questionIds": [
+            "q1"
+          ],
+          "slotIds": [
+            "s1-0"
+          ],
+          "scoring": "legacyPerQuestion",
+          "optionPoolId": "pool-shapes"
+        }
+      ],
+      "blocks": [
+        {
+          "id": "q1-label",
+          "type": "text",
+          "textId": "q1-label",
+          "text": "Choose the shape.",
+          "source": {
+            "kind": "partField",
+            "field": "question.prompt",
+            "startUtf16": 0,
+            "endUtf16": 17,
+            "questionId": "q1"
+          }
+        },
+        {
+          "id": "q1-image",
+          "type": "image",
+          "asset": "map.png",
+          "widthPx": 100,
+          "heightPx": 100,
+          "overlays": []
+        },
+        {
+          "id": "q1-choices",
+          "type": "choiceList",
+          "optionPoolId": "pool-shapes",
+          "slotIds": [
+            "s1-0"
+          ]
+        }
+      ]
+    },
+    {
+      "groupId": "example-multiple",
+      "questionIds": [
+        "q2",
+        "q3"
+      ],
+      "promptHashes": {
+        "q2": "11aa96ff4492a68be989d1b48794dcf60bdda1c4d1c101ea36dca5a4bb642304",
+        "q3": "11aa96ff4492a68be989d1b48794dcf60bdda1c4d1c101ea36dca5a4bb642304"
+      },
+      "instructions": [
+        {
+          "id": "multi-instruction",
+          "type": "text",
+          "textId": "multi-instruction",
+          "text": "Choose TWO.",
+          "source": {
+            "kind": "partField",
+            "field": "question.instructions",
+            "startUtf16": 0,
+            "endUtf16": 11,
+            "questionId": "q2"
+          }
+        }
+      ],
+      "optionPools": [
+        {
+          "poolId": "pool-colors",
+          "questionIds": [
+            "q2",
+            "q3"
+          ],
+          "optionIds": [
+            "A",
+            "B",
+            "C"
+          ]
+        }
+      ],
+      "slots": [
+        {
+          "slotId": "s2-0",
+          "questionId": "q2",
+          "slotIndex": 0,
+          "kind": "multipleChoice"
+        },
+        {
+          "slotId": "s3-0",
+          "questionId": "q3",
+          "slotIndex": 0,
+          "kind": "multipleChoice"
+        }
+      ],
+      "responses": [
+        {
+          "kind": "multipleChoice",
+          "questionIds": [
+            "q2",
+            "q3"
+          ],
+          "slotIds": [
+            "s2-0",
+            "s3-0"
+          ],
+          "scoring": "onePointPerCorrectOption",
+          "optionPoolId": "pool-colors",
+          "selectCount": 2,
+          "order": "unordered",
+          "storage": "sameSortedSetOnEveryQuestion"
+        }
+      ],
+      "blocks": [
+        {
+          "id": "multi-prompt",
+          "type": "text",
+          "textId": "multi-prompt",
+          "text": "Select two colors.",
+          "source": {
+            "kind": "partField",
+            "field": "question.prompt",
+            "startUtf16": 0,
+            "endUtf16": 18,
+            "questionId": "q2"
+          }
+        },
+        {
+          "id": "multi-choices",
+          "type": "choiceList",
+          "optionPoolId": "pool-colors",
+          "slotIds": [
+            "s2-0",
+            "s3-0"
+          ]
+        }
+      ]
+    },
+    {
+      "groupId": "example-matching",
+      "questionIds": [
+        "q4",
+        "q5"
+      ],
+      "promptHashes": {
+        "q4": "43fc8975daf454978e59321ec122d80866686954b280e6f3ab51bdc1cadd1f49",
+        "q5": "463e468c56093227108e2fa9ca047a0d53ae1bfc820394dc6c7f12856b85fcc4"
+      },
+      "instructions": [
+        {
+          "id": "match-instruction",
+          "type": "text",
+          "textId": "match-instruction",
+          "text": "Match each item. Use each option once.",
+          "source": {
+            "kind": "partField",
+            "field": "question.instructions",
+            "startUtf16": 0,
+            "endUtf16": 38,
+            "questionId": "q4"
+          }
+        }
+      ],
+      "optionPools": [
+        {
+          "poolId": "pool-directions",
+          "questionIds": [
+            "q4",
+            "q5"
+          ],
+          "optionIds": [
+            "X",
+            "Y"
+          ]
+        }
+      ],
+      "slots": [
+        {
+          "slotId": "s4-0",
+          "questionId": "q4",
+          "slotIndex": 0,
+          "kind": "matching"
+        },
+        {
+          "slotId": "s5-0",
+          "questionId": "q5",
+          "slotIndex": 0,
+          "kind": "matching"
+        }
+      ],
+      "responses": [
+        {
+          "kind": "matching",
+          "questionIds": [
+            "q4",
+            "q5"
+          ],
+          "slotIds": [
+            "s4-0",
+            "s5-0"
+          ],
+          "scoring": "legacyPerQuestion",
+          "optionPoolId": "pool-directions",
+          "reuse": "forbidden"
+        }
+      ],
+      "blocks": [
+        {
+          "id": "match-first",
+          "type": "paragraph",
+          "children": [
+            {
+              "id": "match-first-text",
+              "type": "text",
+              "textId": "match-first-text",
+              "text": "First direction.",
+              "source": {
+                "kind": "partField",
+                "field": "question.prompt",
+                "startUtf16": 0,
+                "endUtf16": 16,
+                "questionId": "q4"
+              }
+            },
+            {
+              "id": "match-first-choice",
+              "type": "choiceList",
+              "optionPoolId": "pool-directions",
+              "slotIds": [
+                "s4-0"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "match-second",
+          "type": "paragraph",
+          "children": [
+            {
+              "id": "match-second-text",
+              "type": "text",
+              "textId": "match-second-text",
+              "text": "Second direction.",
+              "source": {
+                "kind": "partField",
+                "field": "question.prompt",
+                "startUtf16": 0,
+                "endUtf16": 17,
+                "questionId": "q5"
+              }
+            },
+            {
+              "id": "match-second-choice",
+              "type": "choiceList",
+              "optionPoolId": "pool-directions",
+              "slotIds": [
+                "s5-0"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "groupId": "example-fill",
+      "questionIds": [
+        "q6"
+      ],
+      "promptHashes": {
+        "q6": "d076a383971c5f3f154822b5c5d830e2b3f68370935453697071ca47d2951003"
+      },
+      "instructions": [],
+      "optionPools": [],
+      "slots": [
+        {
+          "slotId": "s6-0",
+          "questionId": "q6",
+          "slotIndex": 0,
+          "kind": "fill"
+        }
+      ],
+      "responses": [
+        {
+          "kind": "fill",
+          "questionIds": [
+            "q6"
+          ],
+          "slotIds": [
+            "s6-0"
+          ],
+          "scoring": "legacyPerQuestion"
+        }
+      ],
+      "blocks": [
+        {
+          "id": "fill-line",
+          "type": "paragraph",
+          "children": [
+            {
+              "id": "source-label",
+              "type": "text",
+              "textId": "source-label",
+              "text": "Supplemental label",
+              "source": {
+                "kind": "resourceRange",
+                "resource": "content.html",
+                "sha256": "1e7e42ade6a2b1f8f2ed3d2312d717dd34da95cf63c33e98f29253e7f65696c7",
+                "normalization": "htmlTextV1",
+                "startUtf16": 0,
+                "endUtf16": 18
+              }
+            },
+            {
+              "id": "fill-prompt",
+              "type": "text",
+              "textId": "fill-prompt",
+              "text": "Name a color.",
+              "source": {
+                "kind": "partField",
+                "field": "question.prompt",
+                "startUtf16": 0,
+                "endUtf16": 13,
+                "questionId": "q6"
+              }
+            },
+            {
+              "id": "place-6-0",
+              "type": "slot",
+              "slotId": "s6-0"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "groupId": "example-double",
+      "questionIds": [
+        "q7"
+      ],
+      "promptHashes": {
+        "q7": "230043ca3ed152b141ac0b7b12ac0f272003440d22c2f2a1b343d88ca189367c"
+      },
+      "instructions": [],
+      "optionPools": [],
+      "slots": [
+        {
+          "slotId": "s7-0",
+          "questionId": "q7",
+          "slotIndex": 0,
+          "kind": "fill"
+        },
+        {
+          "slotId": "s7-1",
+          "questionId": "q7",
+          "slotIndex": 1,
+          "kind": "fill"
+        }
+      ],
+      "responses": [
+        {
+          "kind": "fill",
+          "questionIds": [
+            "q7"
+          ],
+          "slotIds": [
+            "s7-0",
+            "s7-1"
+          ],
+          "scoring": "legacyPerQuestion"
+        }
+      ],
+      "blocks": [
+        {
+          "id": "double-prompt",
+          "type": "text",
+          "textId": "double-prompt",
+          "text": "Complete two terms.",
+          "source": {
+            "kind": "partField",
+            "field": "question.prompt",
+            "startUtf16": 0,
+            "endUtf16": 19,
+            "questionId": "q7"
+          }
+        },
+        {
+          "id": "double-line",
+          "type": "paragraph",
+          "children": [
+            {
+              "id": "place-7-0",
+              "type": "slot",
+              "slotId": "s7-0"
+            },
+            {
+              "id": "double-connector",
+              "type": "text",
+              "textId": "double-connector",
+              "text": "and",
+              "source": {
+                "kind": "partField",
+                "field": "question.instructions",
+                "startUtf16": 0,
+                "endUtf16": 3,
+                "questionId": "q7"
+              },
+              "role": "answerConnector",
+              "questionId": "q7"
+            },
+            {
+              "id": "place-7-1",
+              "type": "slot",
+              "slotId": "s7-1"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "groupId": "example-table",
+      "questionIds": [
+        "q8"
+      ],
+      "promptHashes": {
+        "q8": "62a6da8735c18e2d66fe5de3dc5440252a1da49e3cbaa7c1d2d5068ad73ffba0"
+      },
+      "instructions": [],
+      "optionPools": [],
+      "slots": [
+        {
+          "slotId": "s8-0",
+          "questionId": "q8",
+          "slotIndex": 0,
+          "kind": "fill"
+        }
+      ],
+      "responses": [
+        {
+          "kind": "fill",
+          "questionIds": [
+            "q8"
+          ],
+          "slotIds": [
+            "s8-0"
+          ],
+          "scoring": "legacyPerQuestion"
+        }
+      ],
+      "blocks": [
+        {
+          "id": "table",
+          "type": "table",
+          "rows": [
+            {
+              "id": "row-header",
+              "cells": [
+                {
+                  "id": "cell-name",
+                  "rowSpan": 1,
+                  "colSpan": 1,
+                  "children": [
+                    {
+                      "id": "table-name",
+                      "type": "text",
+                      "textId": "table-name",
+                      "text": "Name",
+                      "source": {
+                        "kind": "partField",
+                        "field": "question.context",
+                        "startUtf16": 0,
+                        "endUtf16": 4,
+                        "questionId": "q8"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "id": "cell-value",
+                  "rowSpan": 1,
+                  "colSpan": 1,
+                  "children": [
+                    {
+                      "id": "table-value",
+                      "type": "text",
+                      "textId": "table-value",
+                      "text": "Value",
+                      "source": {
+                        "kind": "partField",
+                        "field": "question.context",
+                        "startUtf16": 5,
+                        "endUtf16": 10,
+                        "questionId": "q8"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "row-object",
+              "cells": [
+                {
+                  "id": "cell-object",
+                  "rowSpan": 1,
+                  "colSpan": 1,
+                  "children": [
+                    {
+                      "id": "table-object",
+                      "type": "text",
+                      "textId": "table-object",
+                      "text": "Object",
+                      "source": {
+                        "kind": "partField",
+                        "field": "question.prompt",
+                        "startUtf16": 0,
+                        "endUtf16": 6,
+                        "questionId": "q8"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "id": "cell-answer",
+                  "rowSpan": 1,
+                  "colSpan": 1,
+                  "children": [
+                    {
+                      "id": "place-8-0",
+                      "type": "slot",
+                      "slotId": "s8-0"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "groupId": "example-flow",
+      "questionIds": [
+        "q9"
+      ],
+      "promptHashes": {
+        "q9": "e4bb9f1ece9af9264a3b9e3913bbdb2cf497457167b14ced5f85688bfde74644"
+      },
+      "instructions": [],
+      "optionPools": [],
+      "slots": [
+        {
+          "slotId": "s9-0",
+          "questionId": "q9",
+          "slotIndex": 0,
+          "kind": "fill"
+        }
+      ],
+      "responses": [
+        {
+          "kind": "fill",
+          "questionIds": [
+            "q9"
+          ],
+          "slotIds": [
+            "s9-0"
+          ],
+          "scoring": "legacyPerQuestion"
+        }
+      ],
+      "blocks": [
+        {
+          "id": "flow",
+          "type": "flow",
+          "nodes": [
+            {
+              "id": "flow-start",
+              "children": [
+                {
+                  "id": "flow-start-text",
+                  "type": "text",
+                  "textId": "flow-start-text",
+                  "text": "Start",
+                  "source": {
+                    "kind": "partField",
+                    "field": "question.prompt",
+                    "startUtf16": 0,
+                    "endUtf16": 5,
+                    "questionId": "q9"
+                  }
+                }
+              ]
+            },
+            {
+              "id": "flow-end",
+              "children": [
+                {
+                  "id": "place-9-0",
+                  "type": "slot",
+                  "slotId": "s9-0"
+                }
+              ]
+            }
+          ],
+          "edges": [
+            {
+              "from": "flow-start",
+              "to": "flow-end"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "groupId": "example-image-fill",
+      "questionIds": [
+        "q10"
+      ],
+      "promptHashes": {
+        "q10": "433a628e4b3c0709bd7e9eb7107da8166770353e15e8d3211494b6ec4c34ba3d"
+      },
+      "instructions": [],
+      "optionPools": [],
+      "slots": [
+        {
+          "slotId": "s10-0",
+          "questionId": "q10",
+          "slotIndex": 0,
+          "kind": "fill"
+        }
+      ],
+      "responses": [
+        {
+          "kind": "fill",
+          "questionIds": [
+            "q10"
+          ],
+          "slotIds": [
+            "s10-0"
+          ],
+          "scoring": "legacyPerQuestion"
+        }
+      ],
+      "blocks": [
+        {
+          "id": "image-prompt",
+          "type": "text",
+          "textId": "image-prompt",
+          "text": "Label the marker.",
+          "source": {
+            "kind": "partField",
+            "field": "question.prompt",
+            "startUtf16": 0,
+            "endUtf16": 17,
+            "questionId": "q10"
+          }
+        },
+        {
+          "id": "map-image",
+          "type": "image",
+          "asset": "map.png",
+          "widthPx": 100,
+          "heightPx": 100,
+          "overlays": [
+            {
+              "slotId": "s10-0",
+              "rectPx": {
+                "x": 35,
+                "y": 40,
+                "width": 25,
+                "height": 12
+              },
+              "evidence": {
+                "kind": "reviewedMeasurement",
+                "reviewId": "review-map-slot",
+                "imageSha256": "7fc4da284329a7d8cc645f9ad5ac61abcb2edc93c5e670267f7f19a452efa90d"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

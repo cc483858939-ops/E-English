@@ -1,0 +1,34 @@
+{
+  "images": {
+    "map.png": {
+      "sha256": "7fc4da284329a7d8cc645f9ad5ac61abcb2edc93c5e670267f7f19a452efa90d",
+      "widthPx": 100,
+      "heightPx": 100
+    }
+  },
+  "sources": {
+    "content.html": {
+      "sha256": "1e7e42ade6a2b1f8f2ed3d2312d717dd34da95cf63c33e98f29253e7f65696c7"
+    }
+  },
+  "reviews": [
+    {
+      "reviewId": "review-map-slot",
+      "imageSha256": "7fc4da284329a7d8cc645f9ad5ac61abcb2edc93c5e670267f7f19a452efa90d",
+      "partId": "example-part",
+      "groupId": "example-image-fill",
+      "slotId": "s10-0",
+      "rectPx": {
+        "x": 35,
+        "y": 40,
+        "width": 25,
+        "height": 12
+      },
+      "method": "syntheticExplicitCoordinate",
+      "sourceResource": "map.png",
+      "sourceSha256": "7fc4da284329a7d8cc645f9ad5ac61abcb2edc93c5e670267f7f19a452efa90d",
+      "sourceLocator": "whole-image",
+      "explanation": "The fixture itself defines this rectangle; no real source is used."
+    }
+  ]
+}

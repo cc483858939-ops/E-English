@@ -54,8 +54,21 @@ import kotlinx.serialization.json.*
 import kotlin.math.hypot
 import kotlin.math.min
 
-private const val IMAGE_ANSWER_LIST_PILOT_GROUP_ID =
-    "cambridge-11-test-3-part-3-story-drawing-changes-q21-q26"
+/** Data-driven renderer selection; image groups with mixed response kinds keep their existing UI. */
+internal fun usesImageFillAnswerList(group: JsonObject): Boolean {
+    val responses = group["responses"] as? JsonArray ?: return false
+    if (responses.isEmpty() || responses.any { element ->
+            (element as? JsonObject)?.get("kind")?.jsonPrimitive?.contentOrNull != "fill"
+        }) return false
+    return containsV4BlockType(group["instructions"], "image") || containsV4BlockType(group["blocks"], "image")
+}
+
+private fun containsV4BlockType(element: JsonElement?, type: String): Boolean = when (element) {
+    is JsonObject -> element["type"]?.jsonPrimitive?.contentOrNull == type ||
+        element.values.any { containsV4BlockType(it, type) }
+    is JsonArray -> element.any { containsV4BlockType(it, type) }
+    else -> false
+}
 
 /** Renders one validated v4 group. The Part remains the only source of option labels and answers. */
 @Composable
@@ -72,7 +85,7 @@ fun LayoutV4GroupView(
     onActivate: (Int) -> Unit = {},
 ) {
     val groupId = group.v4String("groupId")
-    val imageAnswerListPilot = groupId == IMAGE_ANSWER_LIST_PILOT_GROUP_ID
+    val imageFillAnswerList = remember(group) { usesImageFillAnswerList(group) }
     val questionById = remember(questions) { questions.associateBy { it.id } }
     val slots = remember(group) { group.v4Array("slots").map { it.jsonObject }.associateBy { it.v4String("slotId") } }
     val responses = remember(group) {
@@ -85,17 +98,17 @@ fun LayoutV4GroupView(
     }
     val pools = remember(group) { group.v4Array("optionPools").map { it.jsonObject }.associateBy { it.v4String("poolId") } }
     var activeSlotId by remember(groupId) { mutableStateOf<String?>(null) }
-    var activePilotQuestionId by remember(groupId) { mutableStateOf<String?>(null) }
+    var activeImageFillQuestionId by remember(groupId) { mutableStateOf<String?>(null) }
     val focusManager = LocalFocusManager.current
     val context = remember(group, questions, answers, editable, submitted, saving, slots, responses, pools,
-        imageAnswerListPilot, activePilotQuestionId) {
+        imageFillAnswerList, activeImageFillQuestionId) {
         V4RenderContext(group, questionById, slots, responses, pools, answers, editable, submitted,
             saving, onSelect, onEdit, onCommit, onActivate, { slotId -> activeSlotId = slotId },
-            imageAnswerListPilot, {
-                val focusedQuestionId = activePilotQuestionId
+            imageFillAnswerList, {
+                val focusedQuestionId = activeImageFillQuestionId
                 focusManager.clearFocus(force = true)
                 if (focusedQuestionId != null) onCommit(focusedQuestionId)
-                activePilotQuestionId = null
+                activeImageFillQuestionId = null
             })
     }
     val hasMatchingChoiceList = remember(group) {
@@ -125,8 +138,8 @@ fun LayoutV4GroupView(
         group.v4Array("blocks").forEachIndexed { index, item ->
             V4BlockView(item.jsonObject, context, 0, numberedOrdinalAt(group.v4Array("blocks"), index))
         }
-        if (imageAnswerListPilot) {
-            V4ImageAnswerList(group, context) { questionId -> activePilotQuestionId = questionId }
+        if (imageFillAnswerList) {
+            V4ImageAnswerList(group, context) { questionId -> activeImageFillQuestionId = questionId }
         }
         if (submitted) {
             questions.forEach { question ->
@@ -185,8 +198,8 @@ private data class V4RenderContext(
     val onCommit: (String) -> Unit,
     val onActivate: (Int) -> Unit,
     val onOpenSlot: (String) -> Unit,
-    val imageAnswerListPilot: Boolean,
-    val beforePilotImageZoom: () -> Unit,
+    val imageFillAnswerList: Boolean,
+    val beforeImageZoom: () -> Unit,
 )
 
 @Composable
@@ -195,11 +208,14 @@ private fun V4BlockView(block: JsonObject, context: V4RenderContext, depth: Int,
     when (block.v4String("type")) {
         "text" -> Text(block.v4String("text"), style = MaterialTheme.typography.bodyLarge,
             modifier = Modifier.testTag("v4-text-${block.v4String("id")}"))
-        "slot" -> context.slots[block.v4String("slotId")]?.let { V4SlotControl(it, context) }
+        "slot" -> if (!context.imageFillAnswerList) {
+            context.slots[block.v4String("slotId")]?.let { V4SlotControl(it, context) }
+        }
         "choiceList" -> V4ChoiceList(block, context)
         "image" -> V4ImageBlock(block, context)
         "paragraph" -> FlowRowLayout(block.v4Array("children"), context, depth + 1)
-        "formRow" -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+        "formRow" -> Row(Modifier.fillMaxWidth().testTag("v4-form-row-${block.v4String("id")}"),
+            verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             block.v4Array("children").forEachIndexed { index, child ->
                 V4BlockView(child.jsonObject, context, depth + 1,
@@ -287,7 +303,8 @@ private fun V4Table(block: JsonObject, context: V4RenderContext, depth: Int) {
 private fun V4Flow(block: JsonObject, context: V4RenderContext, depth: Int) {
     val nodes = block.v4Array("nodes").map { it.jsonObject }
     val edges = block.v4Array("edges").map { it.jsonObject }
-    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(Modifier.fillMaxWidth().testTag("v4-flow-${block.v4String("id")}"),
+        horizontalAlignment = Alignment.CenterHorizontally) {
         nodes.forEachIndexed { index, node ->
             Surface(Modifier.fillMaxWidth().padding(horizontal = 8.dp), shape = RoundedCornerShape(10.dp),
                 tonalElevation = 1.dp, border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
@@ -366,14 +383,31 @@ private fun V4ImageAnswerList(
         group.v4Array("questionIds").mapNotNull { questionElement ->
             val questionId = questionElement.jsonPrimitive.content
             val question = context.questionById[questionId] ?: return@mapNotNull null
-            val slot = context.slots.values.singleOrNull { it.v4String("questionId") == questionId }
+            val questionSlots = group.v4Array("slots").map { it.jsonObject }
+                .filter { it.v4String("questionId") == questionId }
+                .sortedBy { it.v4Int("slotIndex") }
+            if (questionSlots.isEmpty() || questionSlots.any { it.v4String("kind") != "fill" }) {
+                return@mapNotNull null
+            }
+            val response = context.responses[questionSlots.first().v4String("slotId")]
                 ?: return@mapNotNull null
-            val response = context.responses[slot.v4String("slotId")] ?: return@mapNotNull null
-            if (slot.v4String("kind") != "fill" || response.v4String("kind") != "fill") return@mapNotNull null
-            PilotFillRow(question, slot, response)
+            if (response.v4String("kind") != "fill") return@mapNotNull null
+            val responseSlots = response.v4Array("slotIds").mapNotNull { element ->
+                context.slots[element.jsonPrimitive.content]
+            }.sortedBy { it.v4Int("slotIndex") }
+            if (responseSlots.size != questionSlots.size || responseSlots.any {
+                    it.v4String("questionId") != questionId || it.v4String("kind") != "fill"
+                }) return@mapNotNull null
+            ImageFillQuestionRow(question, response, responseSlots)
         }
     }
-    val focusRequesters = remember(rows.map { it.question.id }) { rows.map { FocusRequester() } }
+    val focusTargets = remember(rows) {
+        rows.flatMap { row -> row.slots.map { row.question.id to it.v4String("slotId") } }
+    }
+    val focusRequesters = remember(focusTargets.map { it.second }) { focusTargets.map { FocusRequester() } }
+    val focusIndexBySlotId = remember(focusTargets) {
+        focusTargets.mapIndexed { index, target -> target.second to index }.toMap()
+    }
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
     val scope = rememberCoroutineScope()
@@ -381,71 +415,89 @@ private fun V4ImageAnswerList(
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         rows.forEachIndexed { index, row ->
             val question = row.question
-            val slotIndex = row.slot.v4Int("slotIndex")
-            val value = splitForLayout(question, row.response, context.answers[question.id].orEmpty())
-                .getOrElse(slotIndex) { "" }
+            val answerParts = splitForLayout(question, row.response, context.answers[question.id].orEmpty())
             val bringIntoView = remember(question.id) { BringIntoViewRequester() }
-            var hadFocus by remember(question.id) { mutableStateOf(false) }
             Row(
                 Modifier.fillMaxWidth().bringIntoViewRequester(bringIntoView)
                     .testTag("v4-image-list-row-${question.number}"),
-                verticalAlignment = Alignment.CenterVertically,
+                verticalAlignment = Alignment.Top,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(question.number.toString(), style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.widthIn(min = 48.dp).semantics {
                         contentDescription = "题号 ${question.number}"
                     })
-                OutlinedTextField(
-                    value = value,
-                    onValueChange = { next ->
-                        if (next.length <= 512) {
-                            context.onEdit(question.id, encodeForLayout(question, row.response, listOf(next)))
-                        }
-                    },
-                    enabled = context.editable && !context.submitted,
-                    modifier = Modifier.weight(1f).focusRequester(focusRequesters[index])
-                        .onFocusChanged { state ->
-                            if (state.isFocused) {
-                                hadFocus = true
-                                onFocusedQuestionChanged(question.id)
-                                context.onActivate(question.number)
-                                scope.launch { bringIntoView.bringIntoView() }
-                            } else if (hadFocus) {
-                                hadFocus = false
-                                onFocusedQuestionChanged(null)
-                                context.onCommit(question.id)
-                            }
-                        }
-                        .testTag("v4-image-list-input-${question.number}")
-                        .semantics {
-                            contentDescription = "Q${question.number} 答案，${if (value.isBlank()) "未作答" else "已作答"}"
-                        },
-                    placeholder = { Text("填写答案") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Text,
-                        imeAction = if (index == rows.lastIndex) ImeAction.Done else ImeAction.Next,
-                    ),
-                    keyboardActions = KeyboardActions(
-                        onNext = {
-                            context.onCommit(question.id)
-                            focusRequesters.getOrNull(index + 1)?.requestFocus()
-                        },
-                        onDone = {
-                            context.onCommit(question.id)
-                            focusManager.clearFocus(force = true)
-                            keyboard?.hide()
-                        },
-                    ),
-                )
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    row.slots.forEachIndexed { slotOrdinal, slot ->
+                        val slotId = slot.v4String("slotId")
+                        val slotIndex = slot.v4Int("slotIndex")
+                        val targetIndex = focusIndexBySlotId[slotId] ?: return@forEachIndexed
+                        val value = answerParts.getOrElse(slotIndex) { "" }
+                        val singleSlot = row.slots.size == 1
+                        var hadFocus by remember(question.id, slotId) { mutableStateOf(false) }
+                        val tag = if (singleSlot) "v4-image-list-input-${question.number}"
+                            else "v4-image-list-input-${question.number}-slot${slotIndex + 1}"
+                        OutlinedTextField(
+                            value = value,
+                            onValueChange = { next ->
+                                if (next.length <= 512) {
+                                    val parts = splitForLayout(question, row.response,
+                                        context.answers[question.id].orEmpty()).toMutableList()
+                                    while (parts.size < row.slots.size) parts += ""
+                                    parts[slotIndex] = next
+                                    context.onEdit(question.id, encodeForLayout(question, row.response, parts))
+                                }
+                            },
+                            enabled = context.editable && !context.submitted,
+                            modifier = Modifier.fillMaxWidth().focusRequester(focusRequesters[targetIndex])
+                                .onFocusChanged { state ->
+                                    if (state.isFocused) {
+                                        hadFocus = true
+                                        onFocusedQuestionChanged(question.id)
+                                        context.onActivate(question.number)
+                                        scope.launch { bringIntoView.bringIntoView() }
+                                    } else if (hadFocus) {
+                                        hadFocus = false
+                                        onFocusedQuestionChanged(null)
+                                        context.onCommit(question.id)
+                                    }
+                                }
+                                .testTag(tag)
+                                .semantics {
+                                    contentDescription = if (singleSlot) {
+                                        "Q${question.number} 答案，${if (value.isBlank()) "未作答" else "已作答"}"
+                                    } else {
+                                        "Q${question.number} 第${slotIndex + 1}空答案，${if (value.isBlank()) "未作答" else "已作答"}"
+                                    }
+                                },
+                            placeholder = { Text(if (singleSlot) "填写答案" else "第 ${slotIndex + 1} 空") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Text,
+                                imeAction = if (targetIndex == focusTargets.lastIndex) ImeAction.Done else ImeAction.Next,
+                            ),
+                            keyboardActions = KeyboardActions(
+                                onNext = {
+                                    context.onCommit(question.id)
+                                    focusRequesters.getOrNull(targetIndex + 1)?.requestFocus()
+                                },
+                                onDone = {
+                                    context.onCommit(question.id)
+                                    focusManager.clearFocus(force = true)
+                                    keyboard?.hide()
+                                },
+                            ),
+                        )
+                        if (slotOrdinal < row.slots.lastIndex) Spacer(Modifier.height(2.dp))
+                    }
+                }
             }
             if (index < rows.lastIndex) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         }
     }
 }
 
-private data class PilotFillRow(val question: Question, val slot: JsonObject, val response: JsonObject)
+private data class ImageFillQuestionRow(val question: Question, val response: JsonObject, val slots: List<JsonObject>)
 
 @Composable
 private fun V4ChoiceList(block: JsonObject, context: V4RenderContext) {
@@ -545,10 +597,10 @@ private fun V4ImageBlock(block: JsonObject, context: V4RenderContext) {
     val overlays = block.v4Array("overlays").map { it.jsonObject }
     val actualWidth = block.v4Int("widthPx")
     val actualHeight = block.v4Int("heightPx")
-    val drawOverlays = !context.imageAnswerListPilot
-    val hitTestOverlays = !context.imageAnswerListPilot
+    val drawOverlays = !context.imageFillAnswerList
+    val hitTestOverlays = !context.imageFillAnswerList
     val onMainImageTap: () -> Unit = {
-        if (context.imageAnswerListPilot) context.beforePilotImageZoom()
+        if (context.imageFillAnswerList) context.beforeImageZoom()
         zoom = true
     }
     if (image != null) {
@@ -557,7 +609,7 @@ private fun V4ImageBlock(block: JsonObject, context: V4RenderContext) {
             zoomable = false, canvasTag = "v4-image-canvas-$imageId",
             targetTagPrefix = "v4-hotspot-target", onBlankTap = onMainImageTap,
             drawOverlays = drawOverlays, hitTestOverlays = hitTestOverlays)
-        Text(if (context.imageAnswerListPilot) "点击图片放大" else "点击图片中的空位作答；点图片空白处可放大",
+        Text(if (context.imageFillAnswerList) "点击图片放大" else "点击图片中的空位作答；点图片空白处可放大",
             style = MaterialTheme.typography.labelSmall)
         if (zoom) Dialog(onDismissRequest = { zoom = false }) {
             Surface(shape = RoundedCornerShape(18.dp)) {

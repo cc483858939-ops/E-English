@@ -7,7 +7,6 @@ import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
-import android.view.accessibility.AccessibilityNodeInfo
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -29,6 +28,7 @@ import com.eenglish.listening.domain.layout.LayoutV4AnswerStatus
 import com.eenglish.listening.domain.model.*
 import com.eenglish.listening.ui.components.LayoutV4GroupView
 import com.eenglish.listening.ui.components.LocalQuestionImages
+import com.eenglish.listening.ui.components.usesImageFillAnswerList
 import com.eenglish.listening.ui.screens.PracticeScreen
 import com.eenglish.listening.ui.screens.TranscriptScreen
 import com.eenglish.listening.ui.theme.ListeningTheme
@@ -50,7 +50,7 @@ class LayoutV4RealPackUiTest {
         val targetContext = InstrumentationRegistry.getInstrumentation().targetContext
         val staged = File(targetContext.cacheDir, "v4-real-test-packs-${UUID.randomUUID()}")
         val importRoot = File(targetContext.cacheDir, "layout-v4-real-${UUID.randomUUID()}")
-        val books = listOf(5, 6, 9, 10, 11, 12)
+        val books = listOf(5, 6, 9, 10, 11, 12, 16)
         val privateDevicePacks = "/data/local/tmp/eenglish-v4-real-test-packs"
         check(staged.mkdirs() || staged.isDirectory)
         books.forEach { book ->
@@ -87,6 +87,60 @@ class LayoutV4RealPackUiTest {
             }
 
             fun question(part: ListeningPart, number: Int) = part.questions.single { it.number == number }
+
+            fun collectBlocks(element: JsonElement, type: String, result: MutableList<JsonObject>) {
+                when (element) {
+                    is JsonObject -> {
+                        if (element["type"]?.jsonPrimitive?.contentOrNull == type) result += element
+                        element.values.forEach { collectBlocks(it, type, result) }
+                    }
+                    is JsonArray -> element.forEach { collectBlocks(it, type, result) }
+                    else -> Unit
+                }
+            }
+
+            fun imageBlock(group: JsonObject): JsonObject {
+                val images = mutableListOf<JsonObject>()
+                collectBlocks(group["instructions"] ?: JsonArray(emptyList()), "image", images)
+                collectBlocks(group["blocks"] ?: JsonArray(emptyList()), "image", images)
+                return images.single()
+            }
+
+            fun assertImageFillRows(part: ListeningPart, group: JsonObject) {
+                assertTrue("Expected data-driven image-fill mode for ${group.getValue("groupId")}",
+                    usesImageFillAnswerList(group))
+                val questionIds = group.getValue("questionIds").jsonArray.map { it.jsonPrimitive.content }
+                questionIds.forEach { questionId ->
+                    val q = part.questions.single { it.id == questionId }
+                    compose.onAllNodesWithTag("v4-image-list-row-${q.number}").assertCountEquals(1)
+                    val slots = group.getValue("slots").jsonArray.map { it.jsonObject }
+                        .filter { it.getValue("questionId").jsonPrimitive.content == questionId }
+                        .sortedBy { it.getValue("slotIndex").jsonPrimitive.int }
+                    assertTrue("No fill slot for Q${q.number}", slots.isNotEmpty())
+                    slots.forEach { slot ->
+                        val slotIndex = slot.getValue("slotIndex").jsonPrimitive.int
+                        val inputTag = if (slots.size == 1) "v4-image-list-input-${q.number}"
+                            else "v4-image-list-input-${q.number}-slot${slotIndex + 1}"
+                        compose.onAllNodesWithTag(inputTag).assertCountEquals(1)
+                        compose.onNodeWithTag("v4-input-${q.number}-${slotIndex + 1}").assertDoesNotExist()
+                    }
+                }
+                val image = imageBlock(group)
+                val imageId = image.getValue("id").jsonPrimitive.content
+                compose.onAllNodesWithTag("v4-image-canvas-$imageId").assertCountEquals(1)
+                compose.onAllNodesWithContentDescription("题目图片").assertCountEquals(1)
+                image.getValue("overlays").jsonArray.forEach { overlayElement ->
+                    val overlay = overlayElement.jsonObject
+                    val slot = group.getValue("slots").jsonArray.map { it.jsonObject }.single {
+                        it.getValue("slotId").jsonPrimitive.content == overlay.getValue("slotId").jsonPrimitive.content
+                    }
+                    val q = part.questions.single { it.id == slot.getValue("questionId").jsonPrimitive.content }
+                    val slotNumber = slot.getValue("slotIndex").jsonPrimitive.int + 1
+                    compose.onNodeWithTag("v4-hotspot-target-${q.number}-$slotNumber").assertDoesNotExist()
+                    compose.onNodeWithTag("v4-hotspot-target-zoom-${q.number}-$slotNumber").assertDoesNotExist()
+                    compose.onNodeWithTag("v4-hotspot-input-${q.number}-$slotNumber").assertDoesNotExist()
+                }
+            }
 
             fun sha256(bytes: ByteArray): String = java.security.MessageDigest.getInstance("SHA-256")
                 .digest(bytes).joinToString("") { "%02x".format(it) }
@@ -151,6 +205,12 @@ class LayoutV4RealPackUiTest {
                 return state
             }
 
+            fun scrollPracticeToGroup(group: JsonObject) {
+                val tag = "layout-v4-group-${group.getValue("groupId").jsonPrimitive.content}"
+                compose.onNodeWithTag("practice-list").performScrollToNode(hasTestTag(tag))
+                compose.onNodeWithTag(tag).assertExists()
+            }
+
             fun screenBounds(tag: String, scrollTo: Boolean = true): androidx.compose.ui.geometry.Rect {
                 val node = compose.onNodeWithTag(tag)
                 if (scrollTo) node.performScrollTo()
@@ -165,32 +225,6 @@ class LayoutV4RealPackUiTest {
                 return androidx.compose.ui.geometry.Rect(
                     bounds.left + location[0], bounds.top + location[1],
                     bounds.right + location[0], bounds.bottom + location[1])
-            }
-
-            fun accessibilityScreenBounds(descriptionFragment: String): androidx.compose.ui.geometry.Rect {
-                val root = requireNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.rootInActiveWindow) {
-                    "No active accessibility window while locating $descriptionFragment"
-                }
-                val pending = ArrayDeque<AccessibilityNodeInfo>()
-                pending.add(root)
-                val matches = mutableListOf<android.graphics.Rect>()
-                val descriptions = mutableListOf<String>()
-                while (pending.isNotEmpty()) {
-                    val node = pending.removeFirst()
-                    val description = node.contentDescription?.toString().orEmpty()
-                    if (description.isNotBlank()) descriptions += description
-                    if (description.contains(descriptionFragment, ignoreCase = false)) {
-                        val rect = android.graphics.Rect()
-                        node.getBoundsInScreen(rect)
-                        matches += rect
-                    }
-                    for (index in 0 until node.childCount) node.getChild(index)?.let(pending::add)
-                }
-                assertEquals("Expected one visible accessibility node for '$descriptionFragment'; found $matches among $descriptions",
-                    1, matches.size)
-                val rect = matches.single()
-                return androidx.compose.ui.geometry.Rect(rect.left.toFloat(), rect.top.toFloat(),
-                    rect.right.toFloat(), rect.bottom.toFloat())
             }
 
             fun injectTouch(action: Int, x: Int, y: Int, downTime: Long, eventTime: Long): Boolean {
@@ -212,11 +246,43 @@ class LayoutV4RealPackUiTest {
                 assertTrue("Touch up rejected: $evidence", injectTouch(MotionEvent.ACTION_UP, x, y, downTime, SystemClock.uptimeMillis()))
             }
 
-            fun physicalTap(tag: String, evidence: String = tag) {
-                val bounds = screenBounds(tag)
-                val x = bounds.center.x.toInt()
-                val y = bounds.center.y.toInt()
-                physicalTapAt(x, y, "tag=$tag bounds=$bounds $evidence")
+            fun physicallyTapImageHotspotAndVerifyPlainZoom(part: ListeningPart, group: JsonObject,
+                questionNumber: Int, transform: Boolean = false) {
+                val q = question(part, questionNumber)
+                val image = imageBlock(group)
+                val slot = group.getValue("slots").jsonArray.map { it.jsonObject }.single {
+                    it.getValue("questionId").jsonPrimitive.content == q.id &&
+                        it.getValue("slotIndex").jsonPrimitive.int == 0
+                }
+                val overlay = image.getValue("overlays").jsonArray.map { it.jsonObject }.single {
+                    it.getValue("slotId").jsonPrimitive.content == slot.getValue("slotId").jsonPrimitive.content
+                }
+                val rect = overlay.getValue("rectPx").jsonObject
+                val imageId = image.getValue("id").jsonPrimitive.content
+                val canvasTag = "v4-image-canvas-$imageId"
+                val bounds = screenBounds(canvasTag)
+                val sourceX = rect.getValue("x").jsonPrimitive.int + rect.getValue("width").jsonPrimitive.int / 2f
+                val sourceY = rect.getValue("y").jsonPrimitive.int + rect.getValue("height").jsonPrimitive.int / 2f
+                val x = (bounds.left + bounds.width * sourceX / image.getValue("widthPx").jsonPrimitive.int).toInt()
+                val y = (bounds.top + bounds.height * sourceY / image.getValue("heightPx").jsonPrimitive.int).toInt()
+                physicalTapAt(x, y, "${group.getValue("groupId").jsonPrimitive.content} Q$questionNumber image-only hotspot tap")
+                val zoomTag = "v4-image-canvas-zoom-$imageId"
+                compose.waitUntil(10_000) {
+                    compose.onAllNodesWithTag(zoomTag).fetchSemanticsNodes().isNotEmpty()
+                }
+                compose.onNodeWithTag("v4-hotspot-input-$questionNumber-1").assertDoesNotExist()
+                compose.onNodeWithTag("v4-hotspot-target-zoom-$questionNumber-1").assertDoesNotExist()
+                if (transform) {
+                    compose.onNodeWithTag(zoomTag).performTouchInput {
+                        val c = center
+                        pinch(start0 = Offset(c.x - 28f, c.y), end0 = Offset(c.x - 90f, c.y),
+                            start1 = Offset(c.x + 28f, c.y), end1 = Offset(c.x + 90f, c.y))
+                        swipe(start = Offset(c.x - 100f, c.y), end = Offset(c.x + 100f, c.y), durationMillis = 450)
+                    }
+                    compose.waitForIdle()
+                }
+                compose.onNodeWithText("关闭 · 双指缩放与平移").performClick()
+                compose.onAllNodesWithTag(zoomTag).assertCountEquals(0)
             }
 
             fun saveDeviceScreenshot(name: String) {
@@ -229,31 +295,6 @@ class LayoutV4RealPackUiTest {
                 bitmap.recycle()
                 Log.i("LayoutV4PilotScreenshot", output.absolutePath)
                 println("PILOT_SCREENSHOT ${output.absolutePath}")
-            }
-
-            fun farthestBlankPixel(image: JsonObject): Pair<Int, Int> {
-                val width = image.getValue("widthPx").jsonPrimitive.int
-                val height = image.getValue("heightPx").jsonPrimitive.int
-                val rects = image.getValue("overlays").jsonArray.map { it.jsonObject.getValue("rectPx").jsonObject }
-                fun gap(x: Int, y: Int, rect: JsonObject): Float {
-                    val left = rect.getValue("x").jsonPrimitive.int
-                    val top = rect.getValue("y").jsonPrimitive.int
-                    val right = left + rect.getValue("width").jsonPrimitive.int
-                    val bottom = top + rect.getValue("height").jsonPrimitive.int
-                    val dx = maxOf(left - x, 0, x - right).toFloat()
-                    val dy = maxOf(top - y, 0, y - bottom).toFloat()
-                    return kotlin.math.hypot(dx, dy)
-                }
-                val points = (5..95 step 5).flatMap { y -> (5..95 step 5).map { x ->
-                    (width * x / 100) to (height * y / 100)
-                } }
-                val imageId = image.getValue("id").jsonPrimitive.content
-                val best = points.maxByOrNull { (x, y) -> rects.minOfOrNull { gap(x, y, it) } ?: Float.MAX_VALUE }
-                    ?: error("No candidate blank coordinate for $imageId")
-                val clearance = rects.minOfOrNull { gap(best.first, best.second, it) } ?: Float.MAX_VALUE
-                assertTrue("No blank image coordinate safely outside the hotspot hit regions: $imageId at $best clearance=$clearance px",
-                    clearance >= 110f)
-                return best
             }
 
             fun tapHotspot(number: Int, slotIndex: Int = 1) {
@@ -270,11 +311,10 @@ class LayoutV4RealPackUiTest {
                 compose.waitForIdle()
             }
 
-            // C5 T1 P2: exercise the real Part and layout inside the complete PracticeScreen.
+            // C5 T1 P2: retain its printed form rows while moving all inputs below the clean image.
             run {
                 val (part, layout, group) = load("cambridge-5-test-1-part-2", 11)
-                val image = group.getValue("blocks").jsonArray.map { it.jsonObject }
-                    .single { it["type"]?.jsonPrimitive?.content == "image" }
+                val image = imageBlock(group)
                 assertEquals(9, image.getValue("overlays").jsonArray.size)
                 val state = showPracticePage(part, layout)
                 val groupId = group.getValue("groupId").jsonPrimitive.content
@@ -283,72 +323,27 @@ class LayoutV4RealPackUiTest {
                 compose.onNodeWithTag("practice-list").assertExists()
                 compose.onNodeWithTag("practice-submit").assertExists()
                 compose.onNodeWithTag(groupTag).assertExists()
-                val targetTag = "v4-hotspot-target-11-1"
-                physicalTap(targetTag, "C5 T1 P2 Q11 base-image hotspot")
-                compose.waitUntil(10_000) {
-                    compose.onAllNodesWithTag("v4-hotspot-input-11-1").fetchSemanticsNodes().isNotEmpty()
+                compose.onNodeWithTag(groupTag).performScrollTo()
+                assertImageFillRows(part, group)
+                compose.onNodeWithText("点击图片放大").assertExists()
+                val formRows = group.getValue("blocks").jsonArray.map { it.jsonObject }
+                    .filter { it["type"]?.jsonPrimitive?.content == "formRow" }
+                assertEquals(9, formRows.size)
+                formRows.forEach { row ->
+                    compose.onNodeWithTag("v4-form-row-${row.getValue("id").jsonPrimitive.content}").assertExists()
+                    row.getValue("children").jsonArray.map { it.jsonObject }.forEach { child ->
+                        if (child["type"]?.jsonPrimitive?.content == "text") {
+                            compose.onNodeWithTag("v4-text-${child.getValue("id").jsonPrimitive.content}").assertExists()
+                        }
+                    }
                 }
-                val expected = question(part, 11).acceptableAnswers.first()
-                compose.onNodeWithTag("v4-hotspot-input-11-1").performTextInput(expected)
-                compose.onNodeWithText("完成").performClick()
-                compose.runOnIdle { assertEquals(expected, state.value.answers[question(part, 11).id]) }
+                physicallyTapImageHotspotAndVerifyPlainZoom(part, group, questionNumber = 11, transform = true)
 
-                // Tap a source-image point well clear of every hotspot to open the enlarged image.
-                val imageId = image.getValue("id").jsonPrimitive.content
-                val canvasTag = "v4-image-canvas-$imageId"
-                val canvas = screenBounds(canvasTag)
-                val blank = farthestBlankPixel(image)
-                val tapX = (canvas.left + canvas.width * blank.first / image.getValue("widthPx").jsonPrimitive.int).toInt()
-                val tapY = (canvas.top + canvas.height * blank.second / image.getValue("heightPx").jsonPrimitive.int).toInt()
-                physicalTapAt(tapX, tapY,
-                    "blank C5 image sourcePx=$blank canvas=$canvas")
-                val zoomCanvasTag = "v4-image-canvas-zoom-$imageId"
-                compose.waitUntil(10_000) {
-                    compose.onAllNodesWithTag(zoomCanvasTag).fetchSemanticsNodes().isNotEmpty()
-                }
-
-                // Inject an actual two-pointer zoom gesture, then tap the hotspot by its displayed coordinates.
-                compose.onNodeWithTag(zoomCanvasTag).performTouchInput {
-                    val c = center
-                    println("MULTI_TOUCH_PINCH canvas=$zoomCanvasTag center=$c")
-                    pinch(
-                        start0 = Offset(c.x - 28f, c.y), end0 = Offset(c.x - 100f, c.y),
-                        start1 = Offset(c.x + 28f, c.y), end1 = Offset(c.x + 100f, c.y),
-                    )
-                }
-                compose.waitForIdle()
-                Thread.sleep(350)
-                val q11Description = "Q11 ${question(part, 11).prompt.take(48)}"
-                val zoomTarget = accessibilityScreenBounds(q11Description)
-                var x = zoomTarget.center.x.toInt()
-                var y = zoomTarget.center.y.toInt()
-                physicalTapAt(x, y, "C5 Q11 after zoom bounds=$zoomTarget")
-                compose.waitUntil(10_000) {
-                    compose.onAllNodesWithTag("v4-hotspot-input-11-1").fetchSemanticsNodes().isNotEmpty()
-                }
-                compose.onNodeWithText("关闭").performClick()
-                compose.waitForIdle()
-
-                // Pan the enlarged source image, prove the target moved, then tap its new screen position.
-                val zoomImageBounds = accessibilityScreenBounds("题目图片")
-                val beforePan = accessibilityScreenBounds(q11Description)
-                val panDeltaPx = 240
-                compose.onNodeWithTag(zoomCanvasTag).performTouchInput {
-                    val c = center
-                    println("PAN_ZOOMED_CANVAS tag=$zoomCanvasTag imageScreenBounds=$zoomImageBounds")
-                    swipe(start = Offset(c.x - panDeltaPx / 2f, c.y),
-                        end = Offset(c.x + panDeltaPx / 2f, c.y), durationMillis = 500)
-                }
-                Thread.sleep(500)
-                compose.waitForIdle()
-                x = beforePan.center.x.toInt() + panDeltaPx
-                y = beforePan.center.y.toInt()
-                physicalTapAt(x, y,
-                    "C5 Q11 after panning right by ${panDeltaPx}px from pre-pan target=$beforePan zoomCanvas=$zoomCanvasTag")
-                compose.waitUntil(10_000) {
-                    compose.onAllNodesWithTag("v4-hotspot-input-11-1").fetchSemanticsNodes().isNotEmpty()
-                }
-                compose.onNodeWithText("关闭").performClick()
+                val q11 = question(part, 11)
+                compose.onNodeWithTag("v4-image-list-input-11").performScrollTo().performClick()
+                    .performTextInput("form-row-answer")
+                compose.onNodeWithTag("v4-image-list-input-11").performImeAction()
+                compose.runOnIdle { assertEquals("form-row-answer", state.value.answers[q11.id]) }
 
                 // The transcript route's complete reading/player/panel page uses the same real Part and V4 group.
                 compose.activity.runOnUiThread {
@@ -358,7 +353,14 @@ class LayoutV4RealPackUiTest {
                                 TranscriptScreen(state.value.copy(inlineDrafts = emptyMap()), AudioState(ready = true),
                                     onToggle = {}, onSeek = {}, mode = TranscriptMode.ENGLISH, onModeChange = {},
                                     onBack = {}, onSelect = { id, value -> state.value = state.value.copy(
-                                        answers = state.value.answers + (id to value)) })
+                                        answers = state.value.answers + (id to value)) },
+                                    onInlineEdit = { id, value -> state.value = state.value.copy(
+                                        inlineDrafts = state.value.inlineDrafts + (id to value)) },
+                                    onInlineCommit = { id ->
+                                        val draft = state.value.inlineDrafts[id]
+                                        if (draft != null) state.value = state.value.copy(
+                                            answers = state.value.answers + (id to draft), inlineDrafts = state.value.inlineDrafts - id)
+                                    })
                             }
                         }
                     }
@@ -367,10 +369,81 @@ class LayoutV4RealPackUiTest {
                 compose.onNodeWithTag("transcript-header").assertExists()
                 compose.onNodeWithTag("transcript-player").assertExists()
                 compose.onNodeWithTag(groupTag).assertExists()
-                compose.onNodeWithTag(canvasTag).assertExists()
+                assertImageFillRows(part, group)
+                compose.onNodeWithTag("v4-image-list-input-11").assertTextEquals("form-row-answer")
             }
 
-            // C11 T3 P3 Q21-Q26: only this group uses a separate full-width answer list.
+            // C6 T1 P1: ordinary and paired fills share one question-keyed answer state.
+            run {
+                val (part, layout, group) = load("cambridge-6-test-1-part-1", 5)
+                val state = showPracticePage(part, layout)
+                scrollPracticeToGroup(group)
+                assertImageFillRows(part, group)
+
+                val q5 = question(part, 5)
+                val q5Tag = "v4-image-list-input-5"
+                compose.onNodeWithTag(q5Tag).performScrollTo().performClick().performTextInput("ordinary-answer")
+                compose.onNodeWithTag(q5Tag).performImeAction()
+                compose.runOnIdle { assertEquals("ordinary-answer", state.value.answers[q5.id]) }
+
+                val q7 = question(part, 7)
+                val groupQuestions = group.getValue("questionIds").jsonArray.map { id ->
+                    part.questions.single { it.id == id.jsonPrimitive.content }
+                }
+                val firstTag = "v4-image-list-input-7-slot1"
+                val secondTag = "v4-image-list-input-7-slot2"
+                val response = group.getValue("responses").jsonArray.map { it.jsonObject }.single {
+                    it.getValue("questionIds").jsonArray.any { id -> id.jsonPrimitive.content == q7.id }
+                }
+                val joiner = q7.answerSeparator ?: response.getValue("joiner").jsonPrimitive.content
+                compose.onNodeWithTag(firstTag).performScrollTo().performClick().performTextInput("left-answer")
+                compose.onNodeWithTag(firstTag).performImeAction()
+                compose.onNodeWithTag(secondTag).assertIsFocused()
+                compose.runOnIdle {
+                    assertEquals(3, LayoutV4AnswerStatus.missingCount(groupQuestions, layout, state.value.answers))
+                    assertEquals(4, Grader.grade(groupQuestions, state.value.answers).totalCount)
+                }
+                compose.onNodeWithTag(secondTag).performTextInput("right-answer")
+                compose.onNodeWithTag(secondTag).performImeAction()
+                compose.runOnIdle {
+                    assertEquals("left-answer $joiner right-answer", state.value.answers[q7.id])
+                    assertEquals(2, LayoutV4AnswerStatus.missingCount(groupQuestions, layout, state.value.answers))
+                    assertEquals(4, Grader.grade(groupQuestions, state.value.answers).totalCount)
+                }
+                compose.onNodeWithTag(secondTag).performScrollTo().performTextClearance()
+                compose.onNodeWithTag(secondTag).performImeAction()
+                compose.runOnIdle {
+                    assertEquals(3, LayoutV4AnswerStatus.missingCount(groupQuestions, layout, state.value.answers))
+                    assertEquals(1, Grader.grade(listOf(q7), state.value.answers.filterKeys { it == q7.id }).totalCount)
+                }
+            }
+
+            // C16 T2 P3: the flow remains intact above the question-numbered fill list.
+            run {
+                val (part, layout, group) = load("cambridge-16-test-2-part-3", 25)
+                val state = showPracticePage(part, layout)
+                scrollPracticeToGroup(group)
+                assertImageFillRows(part, group)
+                val flows = mutableListOf<JsonObject>()
+                collectBlocks(group, "flow", flows)
+                assertEquals(1, flows.size)
+                val flowId = flows.single().getValue("id").jsonPrimitive.content
+                compose.onNodeWithTag("v4-flow-$flowId").assertExists()
+                val flowText = mutableListOf<JsonObject>()
+                collectBlocks(flows.single(), "text", flowText)
+                flowText.forEach { text ->
+                    compose.onNodeWithTag("v4-text-${text.getValue("id").jsonPrimitive.content}").assertExists()
+                }
+
+                physicallyTapImageHotspotAndVerifyPlainZoom(part, group, questionNumber = 25)
+                val q25 = question(part, 25)
+                val q25Tag = "v4-image-list-input-25"
+                compose.onNodeWithTag(q25Tag).performScrollTo().performClick().performTextInput("flow-answer")
+                compose.onNodeWithTag(q25Tag).performImeAction()
+                compose.runOnIdle { assertEquals("flow-answer", state.value.answers[q25.id]) }
+            }
+
+            // C11 T3 P3 Q21-Q26: the original pilot continues through the generic data route.
             run {
                 val (part, layout, group) = load("cambridge-11-test-3-part-3", 21)
                 val groupId = group.getValue("groupId").jsonPrimitive.content
@@ -396,6 +469,7 @@ class LayoutV4RealPackUiTest {
                 val groupTag = "layout-v4-group-$groupId"
                 var state = showPracticePage(part, layout)
                 compose.onNodeWithTag(groupTag).performScrollTo().assertExists()
+                assertImageFillRows(part, group)
                 compose.onNodeWithText("点击图片放大").assertExists()
                 (21..26).forEach { number ->
                     compose.onAllNodesWithTag("v4-image-list-row-$number").assertCountEquals(1)
@@ -637,15 +711,17 @@ class LayoutV4RealPackUiTest {
                 val values = accepted.split(Regex("(?:^|\\s+)${Regex.escape(joiner)}(?:\\s+|$)", RegexOption.IGNORE_CASE), limit = 2)
                 assertEquals(2, values.size)
                 val answers = render(part, group)
-                tapHotspot(12, 1)
-                compose.onNodeWithTag("v4-hotspot-input-12-1").performTextInput(values[0].trim())
-                compose.onNodeWithText("完成").performClick()
+                assertImageFillRows(part, group)
+                val firstTag = "v4-image-list-input-12-slot1"
+                val secondTag = "v4-image-list-input-12-slot2"
+                compose.onNodeWithTag(firstTag).performClick().performTextInput(values[0].trim())
+                compose.onNodeWithTag(firstTag).performImeAction()
+                compose.onNodeWithTag(secondTag).assertIsFocused()
                 compose.runOnIdle {
                     assertEquals(1, LayoutV4AnswerStatus.missingCount(listOf(q), layout, answers.value))
                 }
-                tapHotspot(12, 2)
-                compose.onNodeWithTag("v4-hotspot-input-12-2").performTextInput(values[1].trim())
-                compose.onNodeWithText("完成").performClick()
+                compose.onNodeWithTag(secondTag).performTextInput(values[1].trim())
+                compose.onNodeWithTag(secondTag).performImeAction()
                 compose.runOnIdle {
                     val saved = answers.value[q.id].orEmpty()
                     assertEquals("${values[0].trim()} $joiner ${values[1].trim()}", saved)

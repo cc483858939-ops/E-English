@@ -93,7 +93,7 @@ class LayoutV4ScreenUiTest {
         return Fixture(part, layout, attempt)
     }
 
-    @Test fun practiceV4HotspotEditsSavesAndShowsReadOnlySubmittedResult() {
+    @Test fun practiceV4ImageFillListEditsSavesAndShowsReadOnlySubmittedResult() {
         val f = fixture()
         val state = mutableStateOf(PracticeUiState(loading = false, part = f.part,
             questionLayoutV4 = f.layout, attempt = f.attempt,
@@ -123,20 +123,23 @@ class LayoutV4ScreenUiTest {
         }
         compose.waitForIdle()
         compose.onNodeWithTag("layout-v4-group-${f.part.id}-layout-q11-q19").assertExists()
-        compose.onNodeWithTag("v4-hotspot-target-11-1").performClick()
-        compose.onNodeWithTag("v4-hotspot-input-11-1").performTextInput("answer11")
-        compose.onNodeWithText("完成").performClick()
+        compose.onAllNodesWithTag("v4-image-list-input-11").assertCountEquals(1)
+        compose.onNodeWithTag("v4-input-11-1").assertDoesNotExist()
+        compose.onNodeWithTag("v4-hotspot-target-11-1").assertDoesNotExist()
+        compose.onNodeWithTag("v4-image-list-input-11").performClick().performTextInput("answer11")
+        compose.onNodeWithTag("v4-image-list-input-12").performClick()
         compose.runOnIdle {
             assertEquals("answer11", state.value.answers[f.part.questions.first().id])
-            assertEquals(1, commits)
+            assertTrue("Changing question must commit the image-list draft", commits >= 1)
         }
+        compose.onNodeWithTag("v4-image-list-input-19").performScrollTo().performClick().performImeAction()
         compose.onNodeWithTag("practice-submit").performClick()
         compose.onNodeWithTag("grade-summary").assertExists()
         val resultText = compose.onNodeWithTag("v4-result-11").fetchSemanticsNode()
             .config[SemanticsProperties.Text].joinToString(" ") { it.text }
         assertTrue("Submitted V4 fill result must include its answer and correctness: $resultText",
             resultText.contains("answer11") && resultText.contains("正确"))
-        compose.onNodeWithTag("v4-hotspot-input-11-1").assertDoesNotExist()
+        compose.onNodeWithTag("v4-image-list-input-11").assertIsNotEnabled().assertTextEquals("answer11")
     }
 
     @Test fun transcriptPanelUsesTheV4GroupAndFlushesDraftBeforeQuestionNavigation() {
