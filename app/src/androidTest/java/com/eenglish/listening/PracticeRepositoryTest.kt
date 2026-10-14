@@ -4,6 +4,7 @@ import androidx.room.Room
 import androidx.test.platform.app.InstrumentationRegistry
 import com.eenglish.listening.data.local.PracticeDatabase
 import com.eenglish.listening.data.repository.PracticeRepository
+import com.eenglish.listening.domain.grading.Grader
 import com.eenglish.listening.domain.model.*
 import kotlinx.coroutines.*
 import org.junit.After
@@ -38,6 +39,16 @@ class PracticeRepositoryTest {
         val restored = repository.all().single()
         assertEquals(mapOf("q21" to "B"), restored.selectedAnswers)
         assertEquals(1, restored.answers.size)
+    }
+    @Test fun emptySingleChoiceValueClearsAnswerAndSurvivesReopeningDatabase() = runBlocking {
+        val id = repository.resumeOrCreate(part)
+        repository.saveAnswer(id, "q21", "A")
+        repository.saveAnswer(id, "q21", "")
+        assertEquals("", repository.all().single().selectedAnswers["q21"])
+        db.close(); open()
+        val restored = repository.all().single()
+        assertEquals("", restored.selectedAnswers["q21"])
+        assertEquals(0, Grader.grade(part.questions, restored.selectedAnswers).correctCount)
     }
     @Test fun concurrentSubmissionIsIdempotentAndImmutable() = runBlocking {
         val id = repository.resumeOrCreate(part)

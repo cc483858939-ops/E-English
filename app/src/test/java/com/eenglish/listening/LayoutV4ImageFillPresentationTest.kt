@@ -1,6 +1,7 @@
 package com.eenglish.listening
 
 import com.eenglish.listening.ui.components.usesImageFillAnswerList
+import com.eenglish.listening.ui.components.usesC11ReportResponsibilitiesPilot
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -9,6 +10,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LayoutV4ImageFillPresentationTest {
+    @Test fun reportResponsibilitiesPilotIsLimitedToItsExplicitGroupId() {
+        assertTrue(usesC11ReportResponsibilitiesPilot(
+            "cambridge-11-test-3-part-3-report-responsibilities-q27-q30"))
+        assertFalse(usesC11ReportResponsibilitiesPilot(
+            "cambridge-11-test-3-part-3-story-drawing-changes-q21-q26"))
+        assertFalse(usesC11ReportResponsibilitiesPilot("some-other-matching-group"))
+    }
+
     @Test fun imageWithOnlyFillResponsesUsesQuestionNumberAnswerList() {
         assertTrue(usesImageFillAnswerList(group(imageInBlocks = true, responseKinds = listOf("fill"))))
     }

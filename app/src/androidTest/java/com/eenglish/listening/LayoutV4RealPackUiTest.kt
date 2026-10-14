@@ -29,6 +29,7 @@ import com.eenglish.listening.domain.model.*
 import com.eenglish.listening.ui.components.LayoutV4GroupView
 import com.eenglish.listening.ui.components.LocalQuestionImages
 import com.eenglish.listening.ui.components.usesImageFillAnswerList
+import com.eenglish.listening.ui.components.usesC11ReportResponsibilitiesPilot
 import com.eenglish.listening.ui.screens.PracticeScreen
 import com.eenglish.listening.ui.screens.TranscriptScreen
 import com.eenglish.listening.ui.theme.ListeningTheme
@@ -140,6 +141,89 @@ class LayoutV4RealPackUiTest {
                     compose.onNodeWithTag("v4-hotspot-target-zoom-${q.number}-$slotNumber").assertDoesNotExist()
                     compose.onNodeWithTag("v4-hotspot-input-${q.number}-$slotNumber").assertDoesNotExist()
                 }
+            }
+
+            fun assertReportResponsibilitiesRows(part: ListeningPart, group: JsonObject) {
+                val groupId = group.getValue("groupId").jsonPrimitive.content
+                assertTrue(usesC11ReportResponsibilitiesPilot(groupId))
+                val questionIds = group.getValue("questionIds").jsonArray.map { it.jsonPrimitive.content }
+                assertEquals((27..30).map { question(part, it).id }, questionIds)
+                val instructions = group.getValue("instructions").jsonArray.map { it.jsonObject }
+                assertTrue("This group must keep its original V4 instructions", instructions.isNotEmpty())
+                instructions.forEach { instruction ->
+                    val tag = "v4-text-${instruction.getValue("id").jsonPrimitive.content}"
+                    compose.onAllNodesWithTag(tag).assertCountEquals(1)
+                    compose.onNodeWithTag(tag).assertTextEquals(instruction.getValue("text").jsonPrimitive.content)
+                }
+                val response = group.getValue("responses").jsonArray.map { it.jsonObject }.single()
+                assertEquals("matching", response.getValue("kind").jsonPrimitive.content)
+                assertEquals("allowed", response.getValue("reuse").jsonPrimitive.content)
+                val poolId = response.getValue("optionPoolId").jsonPrimitive.content
+                val pool = group.getValue("optionPools").jsonArray.map { it.jsonObject }.single {
+                    it.getValue("poolId").jsonPrimitive.content == poolId
+                }
+                val optionIds = pool.getValue("optionIds").jsonArray.map { it.jsonPrimitive.content }
+                assertEquals(listOf("A", "B", "C", "D"), optionIds)
+                val optionSource = question(part, 27).options.associateBy { it.id }
+                optionIds.forEach { optionId ->
+                    val optionText = requireNotNull(optionSource[optionId]).text
+                    compose.onAllNodesWithTag("v4-letter-match-option-$groupId-$optionId").assertCountEquals(1)
+                    compose.onNodeWithTag("v4-letter-match-option-text-$groupId-$optionId")
+                        .assertTextEquals(optionText.ifBlank { optionId })
+                    questionIds.forEach { questionId ->
+                        val q = part.questions.single { it.id == questionId }
+                        assertEquals(optionText, requireNotNull(q.options.singleOrNull { it.id == optionId }).text)
+                    }
+                }
+                val semanticTree = compose.onRoot().printToString()
+                val lastInstructionPosition = semanticTree.indexOf(
+                    "v4-text-${instructions.last().getValue("id").jsonPrimitive.content}")
+                val firstOptionPosition = semanticTree.indexOf("v4-letter-match-option-$groupId-A")
+                assertTrue("Shared options must follow the original instructions",
+                    lastInstructionPosition >= 0 && firstOptionPosition > lastInstructionPosition)
+                questionIds.forEach { questionId ->
+                    val q = part.questions.single { it.id == questionId }
+                    compose.onAllNodesWithTag("v4-letter-match-row-${q.number}").assertCountEquals(1)
+                    val slot = group.getValue("slots").jsonArray.map { it.jsonObject }.single {
+                        it.getValue("questionId").jsonPrimitive.content == questionId
+                    }
+                    val slotId = slot.getValue("slotId").jsonPrimitive.content
+                    val formRow = group.getValue("blocks").jsonArray.map { it.jsonObject }.single { block ->
+                        block.getValue("type").jsonPrimitive.content == "formRow" &&
+                            block.getValue("children").jsonArray.map { it.jsonObject }.any { child ->
+                                child["type"]?.jsonPrimitive?.content == "choiceList" &&
+                                    child.getValue("slotIds").jsonArray.any { it.jsonPrimitive.content == slotId }
+                            }
+                    }
+                    formRow.getValue("children").jsonArray.map { it.jsonObject }
+                        .filter { it["type"]?.jsonPrimitive?.content == "text" }
+                        .forEach { prompt ->
+                            val promptId = prompt.getValue("id").jsonPrimitive.content
+                            compose.onAllNodesWithTag("v4-text-$promptId").assertCountEquals(1)
+                            compose.onNodeWithTag("v4-text-$promptId")
+                                .assertTextEquals(prompt.getValue("text").jsonPrimitive.content)
+                        }
+                    optionIds.forEach { optionId ->
+                        val tag = "v4-letter-match-button-${q.number}-$optionId"
+                        compose.onAllNodesWithTag(tag).assertCountEquals(1)
+                        compose.onNodeWithTag("v4-matching-choice-$groupId-${q.number}-$optionId").assertDoesNotExist()
+                    }
+                    compose.onNodeWithTag("v4-form-row-${formRow.getValue("id").jsonPrimitive.content}")
+                        .assertDoesNotExist()
+                    compose.onNodeWithTag("matching-option-sheet-title-${q.number}").assertDoesNotExist()
+                }
+                val treeAfterRows = compose.onRoot().printToString()
+                val lastOptionPosition = treeAfterRows.indexOf("v4-letter-match-option-$groupId-D")
+                val q27Prompt = group.getValue("blocks").jsonArray.map { it.jsonObject }
+                    .single { block -> block.getValue("type").jsonPrimitive.content == "formRow" &&
+                        block.getValue("children").jsonArray.map { it.jsonObject }.any { child ->
+                            child["type"]?.jsonPrimitive?.content == "choiceList" &&
+                                child.getValue("slotIds").jsonArray.any { it.jsonPrimitive.content == "slot-q27-0" }
+                        } }.getValue("children").jsonArray.map { it.jsonObject }
+                    .first { it["type"]?.jsonPrimitive?.content == "text" }
+                val q27PromptPosition = treeAfterRows.indexOf("v4-text-${q27Prompt.getValue("id").jsonPrimitive.content}")
+                assertTrue("Question prompts must follow the one shared option list",
+                    lastOptionPosition >= 0 && q27PromptPosition > lastOptionPosition)
             }
 
             fun sha256(bytes: ByteArray): String = java.security.MessageDigest.getInstance("SHA-256")
@@ -293,8 +377,16 @@ class LayoutV4RealPackUiTest {
                     assertTrue("Failed to encode screenshot $output", bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream))
                 }
                 bitmap.recycle()
+                val sharedPath = "/sdcard/Pictures/eenglish-layout-v4-pilot/$name.png"
+                val localTmpPath = "/data/local/tmp/eenglish-layout-v4-pilot-$name.png"
+                val copy = InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(
+                    "mkdir -p /sdcard/Pictures/eenglish-layout-v4-pilot; cp '${output.absolutePath}' '$sharedPath' 2>&1; cp '${output.absolutePath}' '$localTmpPath' 2>&1; echo screenshot-copy-finished")
+                val copyOutput = android.os.ParcelFileDescriptor.AutoCloseInputStream(copy).bufferedReader().use { it.readText() }
                 Log.i("LayoutV4PilotScreenshot", output.absolutePath)
+                Log.i("LayoutV4PilotScreenshot", sharedPath)
+                Log.i("LayoutV4PilotScreenshot", localTmpPath + " " + copyOutput)
                 println("PILOT_SCREENSHOT ${output.absolutePath}")
+                println("PILOT_SCREENSHOT_SHARED $sharedPath")
             }
 
             fun tapHotspot(number: Int, slotIndex: Int = 1) {
@@ -594,6 +686,116 @@ class LayoutV4RealPackUiTest {
                 compose.onNodeWithTag("grade-summary").assertTextContains(
                     "正确 ${grade.correctCount} / ${grade.totalCount}", substring = true)
                 compose.onNodeWithTag(q22Tag).performScrollTo().assertIsNotEnabled().assertTextEquals("pilot22")
+            }
+
+            // C11 T3 P3 Q27-Q30: this exact matching group uses one shared option list and
+            // four equal-width letter rows. Repeated letters are allowed by its V4 response.
+            run {
+                val (part, layout, group) = load("cambridge-11-test-3-part-3", 27)
+                val groupId = group.getValue("groupId").jsonPrimitive.content
+                assertEquals("cambridge-11-test-3-part-3-report-responsibilities-q27-q30", groupId)
+                val state = showPracticePage(part, layout)
+                scrollPracticeToGroup(group)
+                assertReportResponsibilitiesRows(part, group)
+
+                val optionIds = listOf("A", "B", "C", "D")
+                val bounds = optionIds.associateWith { optionId ->
+                    compose.onNodeWithTag("v4-letter-match-button-27-$optionId")
+                        .assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+                }
+                val density = compose.activity.resources.displayMetrics.density
+                val widthsDp = bounds.values.map { it.width / density }
+                assertTrue("All four options must fit side-by-side on the phone: $widthsDp",
+                    widthsDp.all { it >= 48f })
+                assertTrue("The letter buttons must have equal widths: $widthsDp",
+                    widthsDp.max() - widthsDp.min() <= 2f)
+                assertTrue("The A-D controls must share one horizontal row", bounds.values
+                    .map { it.center.y }.max() - bounds.values.map { it.center.y }.min() <= 2f)
+                assertTrue("The A-D controls must be ordered and non-overlapping", optionIds
+                    .map { bounds.getValue(it) }.zipWithNext().all { (left, right) -> left.right <= right.left })
+                compose.onNodeWithTag("v4-letter-match-button-30-A").performScrollTo()
+                val lastQuestionBottom = compose.onNodeWithTag("v4-letter-match-button-30-A")
+                    .fetchSemanticsNode().boundsInRoot.bottom
+                val submitTop = compose.onNodeWithTag("practice-submit").fetchSemanticsNode().boundsInRoot.top
+                assertTrue("The final question must remain above the fixed submit action",
+                    lastQuestionBottom <= submitTop)
+                scrollPracticeToGroup(group)
+                saveDeviceScreenshot("c11-q27-q30-unanswered")
+
+                val q27 = question(part, 27)
+                val q28 = question(part, 28)
+                val q27A = compose.onNodeWithTag("v4-letter-match-button-27-A")
+                val q27B = compose.onNodeWithTag("v4-letter-match-button-27-B")
+                q27A.performClick()
+                compose.runOnIdle { assertEquals("A", state.value.answers[q27.id]) }
+                q27B.performClick()
+                compose.runOnIdle { assertEquals("B", state.value.answers[q27.id]) }
+                q27B.performClick()
+                compose.runOnIdle { assertEquals("", state.value.answers[q27.id]) }
+                q27A.performClick()
+                compose.onNodeWithTag("v4-letter-match-button-28-A").performScrollTo().performClick()
+                compose.runOnIdle {
+                    assertEquals("A", state.value.answers[q27.id])
+                    assertEquals("A", state.value.answers[q28.id])
+                }
+                compose.onNodeWithTag("v4-letter-match-button-27-A").assertIsSelected()
+                compose.onNodeWithTag("v4-letter-match-button-28-A").assertIsSelected()
+                saveDeviceScreenshot("c11-q27-q30-answered")
+
+                // Simulate leaving the practice route and restoring the same persisted UI state.
+                compose.activity.runOnUiThread { compose.activity.setContent { Text("matching-route-away") } }
+                compose.waitForIdle()
+                val restored = showPracticePage(part, layout, state.value)
+                scrollPracticeToGroup(group)
+                compose.onNodeWithTag("v4-letter-match-button-27-A").performScrollTo().assertIsSelected()
+                compose.onNodeWithTag("v4-letter-match-button-28-A").performScrollTo().assertIsSelected()
+                compose.runOnIdle {
+                    assertEquals("A", restored.value.answers[q27.id])
+                    assertEquals("A", restored.value.answers[q28.id])
+                }
+
+                // The transcript page selects the same V4 group and allows the same answer route.
+                compose.activity.runOnUiThread {
+                    compose.activity.setContent {
+                        ListeningTheme {
+                            TranscriptScreen(restored.value, AudioState(ready = true),
+                                onToggle = {}, onSeek = {}, mode = TranscriptMode.ENGLISH, onModeChange = {},
+                                onBack = {}, onSelect = { id, value -> restored.value = restored.value.copy(
+                                    answers = restored.value.answers + (id to value)) })
+                        }
+                    }
+                }
+                compose.waitForIdle()
+                compose.onNodeWithTag("transcript-jump").performClick()
+                compose.onNodeWithTag("jump-27").performClick()
+                compose.onNodeWithTag("transcript-question-body").assertExists()
+                assertReportResponsibilitiesRows(part, group)
+                compose.onNodeWithTag("v4-letter-match-button-29-C").performScrollTo().performClick()
+                compose.runOnIdle { assertEquals("C", restored.value.answers[question(part, 29).id]) }
+
+                // Submitted answers stay visible and all letter buttons are read-only.
+                val grade = Grader.grade(part.questions, restored.value.answers)
+                val currentAttempt = requireNotNull(restored.value.attempt)
+                val submitted = restored.value.copy(attempt = currentAttempt.copy(
+                    session = currentAttempt.session.copy(status = SessionStatus.SUBMITTED,
+                        submittedAt = 3L, correctCount = grade.correctCount)))
+                compose.activity.runOnUiThread {
+                    compose.activity.setContent {
+                        ListeningTheme {
+                            PracticeScreen(submitted, AudioState(ready = true), {}, {}, { _, _ -> }, {}, {},
+                                onSubmit = {}, onConfirm = {}, onDismiss = {}, onNew = {}, onHistory = {})
+                        }
+                    }
+                }
+                compose.waitForIdle()
+                compose.onNodeWithTag("grade-summary").assertExists()
+                scrollPracticeToGroup(group)
+                compose.onNodeWithTag("v4-letter-match-button-27-A").performScrollTo()
+                    .assertIsSelected().assertIsNotEnabled()
+                compose.onNodeWithTag("v4-letter-match-button-28-A").performScrollTo()
+                    .assertIsSelected().assertIsNotEnabled()
+                compose.onNodeWithTag("v4-letter-match-button-29-C").performScrollTo()
+                    .assertIsSelected().assertIsNotEnabled()
             }
 
             // C6 T1 P1 is authoritative real data for list numbering: its first two list items

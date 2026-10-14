@@ -37,6 +37,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
@@ -54,6 +55,9 @@ import kotlinx.serialization.json.*
 import kotlin.math.hypot
 import kotlin.math.min
 
+private const val C11_REPORT_RESPONSIBILITIES_PILOT_GROUP_ID =
+    "cambridge-11-test-3-part-3-report-responsibilities-q27-q30"
+
 /** Data-driven renderer selection; image groups with mixed response kinds keep their existing UI. */
 internal fun usesImageFillAnswerList(group: JsonObject): Boolean {
     val responses = group["responses"] as? JsonArray ?: return false
@@ -62,6 +66,9 @@ internal fun usesImageFillAnswerList(group: JsonObject): Boolean {
         }) return false
     return containsV4BlockType(group["instructions"], "image") || containsV4BlockType(group["blocks"], "image")
 }
+
+internal fun usesC11ReportResponsibilitiesPilot(groupId: String): Boolean =
+    groupId == C11_REPORT_RESPONSIBILITIES_PILOT_GROUP_ID
 
 private fun containsV4BlockType(element: JsonElement?, type: String): Boolean = when (element) {
     is JsonObject -> element["type"]?.jsonPrimitive?.contentOrNull == type ||
@@ -86,6 +93,7 @@ fun LayoutV4GroupView(
 ) {
     val groupId = group.v4String("groupId")
     val imageFillAnswerList = remember(group) { usesImageFillAnswerList(group) }
+    val reportResponsibilitiesPilot = usesC11ReportResponsibilitiesPilot(groupId)
     val questionById = remember(questions) { questions.associateBy { it.id } }
     val slots = remember(group) { group.v4Array("slots").map { it.jsonObject }.associateBy { it.v4String("slotId") } }
     val responses = remember(group) {
@@ -121,25 +129,29 @@ fun LayoutV4GroupView(
         group.v4Array("instructions").forEachIndexed { index, item ->
             V4BlockView(item.jsonObject, context, 0, numberedOrdinalAt(group.v4Array("instructions"), index))
         }
-        if (!hasMatchingChoiceList) {
-            group.v4Array("responses").map { it.jsonObject }.filter { it.v4String("kind") == "matching" }
-                .distinctBy { it.v4String("optionPoolId") }.forEach { response ->
-                    val pool = pools[response.v4String("optionPoolId")] ?: return@forEach
-                    val optionIds = pool.v4Array("optionIds").map { it.jsonPrimitive.content }
-                    val options = optionsFor(response.v4Array("questionIds").map { it.jsonPrimitive.content },
-                        optionIds, questionById)
-                    Text("可选项", style = MaterialTheme.typography.labelLarge)
-                    options.forEach { option ->
-                        Text(optionLabel(option), style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.testTag("v4-matching-option-${groupId}-${option.id}"))
+        if (reportResponsibilitiesPilot) {
+            V4LetterMatchingPilot(group, context)
+        } else {
+            if (!hasMatchingChoiceList) {
+                group.v4Array("responses").map { it.jsonObject }.filter { it.v4String("kind") == "matching" }
+                    .distinctBy { it.v4String("optionPoolId") }.forEach { response ->
+                        val pool = pools[response.v4String("optionPoolId")] ?: return@forEach
+                        val optionIds = pool.v4Array("optionIds").map { it.jsonPrimitive.content }
+                        val options = optionsFor(response.v4Array("questionIds").map { it.jsonPrimitive.content },
+                            optionIds, questionById)
+                        Text("可选项", style = MaterialTheme.typography.labelLarge)
+                        options.forEach { option ->
+                            Text(optionLabel(option), style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.testTag("v4-matching-option-${groupId}-${option.id}"))
+                        }
                     }
-                }
-        }
-        group.v4Array("blocks").forEachIndexed { index, item ->
-            V4BlockView(item.jsonObject, context, 0, numberedOrdinalAt(group.v4Array("blocks"), index))
-        }
-        if (imageFillAnswerList) {
-            V4ImageAnswerList(group, context) { questionId -> activeImageFillQuestionId = questionId }
+            }
+            group.v4Array("blocks").forEachIndexed { index, item ->
+                V4BlockView(item.jsonObject, context, 0, numberedOrdinalAt(group.v4Array("blocks"), index))
+            }
+            if (imageFillAnswerList) {
+                V4ImageAnswerList(group, context) { questionId -> activeImageFillQuestionId = questionId }
+            }
         }
         if (submitted) {
             questions.forEach { question ->
@@ -498,6 +510,104 @@ private fun V4ImageAnswerList(
 }
 
 private data class ImageFillQuestionRow(val question: Question, val response: JsonObject, val slots: List<JsonObject>)
+
+private data class LetterMatchingQuestionRow(val question: Question, val promptBlocks: List<JsonObject>)
+
+/** Shared-option, per-question letter buttons used by the narrowly gated C11 pilot. */
+@Composable
+private fun V4LetterMatchingPilot(group: JsonObject, context: V4RenderContext) {
+    val response = group.v4Array("responses").map { it.jsonObject }.singleOrNull {
+        it["kind"]?.jsonPrimitive?.contentOrNull == "matching"
+    } ?: return
+    val pool = context.pools[response.v4String("optionPoolId")] ?: return
+    val questionIds = group.v4Array("questionIds").map { it.jsonPrimitive.content }
+    val optionIds = pool.v4Array("optionIds").map { it.jsonPrimitive.content }
+    val options = remember(questionIds, optionIds, context.questionById) {
+        optionsFor(questionIds, optionIds, context.questionById)
+    }
+    val rows = remember(group, questionIds, context.questionById, context.slots) {
+        questionIds.mapNotNull { questionId ->
+            val question = context.questionById[questionId] ?: return@mapNotNull null
+            val slot = group.v4Array("slots").map { it.jsonObject }.singleOrNull {
+                it["questionId"]?.jsonPrimitive?.contentOrNull == questionId &&
+                    it["kind"]?.jsonPrimitive?.contentOrNull == "matching"
+            } ?: return@mapNotNull null
+            val slotId = slot.v4String("slotId")
+            if (slotId !in response.v4Array("slotIds").map { it.jsonPrimitive.content }) {
+                return@mapNotNull null
+            }
+            val formRow = group.v4Array("blocks").map { it.jsonObject }.firstOrNull { block ->
+                block["type"]?.jsonPrimitive?.contentOrNull == "formRow" &&
+                    block.v4Array("children").any { childElement ->
+                        val child = childElement.jsonObject
+                        child["type"]?.jsonPrimitive?.contentOrNull == "choiceList" &&
+                            slotId in child.v4Array("slotIds").map { it.jsonPrimitive.content }
+                    }
+            } ?: return@mapNotNull null
+            val promptBlocks = formRow.v4Array("children").map { it.jsonObject }
+                .filter { it["type"]?.jsonPrimitive?.contentOrNull == "text" }
+            if (promptBlocks.isEmpty()) return@mapNotNull null
+            LetterMatchingQuestionRow(question, promptBlocks)
+        }
+    }
+
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("可选项（全组只显示一次）", style = MaterialTheme.typography.labelLarge)
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            options.forEach { option ->
+                Row(Modifier.fillMaxWidth().testTag("v4-letter-match-option-${group.v4String("groupId")}-${option.id}")
+                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.Top,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(option.id, style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary, modifier = Modifier.width(28.dp)
+                            .testTag("v4-letter-match-option-label-${group.v4String("groupId")}-${option.id}"))
+                    Text(option.text.ifBlank { option.id }, style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.weight(1f)
+                            .testTag("v4-letter-match-option-text-${group.v4String("groupId")}-${option.id}"))
+                }
+            }
+        }
+        rows.forEachIndexed { rowIndex, row ->
+            Column(Modifier.fillMaxWidth().testTag("v4-letter-match-row-${row.question.number}"),
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.promptBlocks.forEach { prompt ->
+                    V4BlockView(prompt, context, depth = 1)
+                }
+                Row(Modifier.fillMaxWidth().testTag("v4-letter-match-buttons-${row.question.number}"),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    options.forEach { option ->
+                        val isSelected = context.answers[row.question.id].equals(option.id, ignoreCase = true)
+                        val enabled = context.editable && !context.submitted && !context.saving
+                        val modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                            .semantics {
+                                selected = isSelected
+                                contentDescription = "Q${row.question.number} 选项 ${option.id}${if (isSelected) "，已选中" else ""}"
+                            }
+                            .testTag("v4-letter-match-button-${row.question.number}-${option.id}")
+                        val onClick = {
+                            context.onActivate(row.question.number)
+                            context.onSelect(row.question.id, if (isSelected) "" else option.id)
+                        }
+                        if (isSelected) {
+                            Button(onClick = onClick, enabled = enabled, modifier = modifier,
+                                colors = ButtonDefaults.buttonColors(
+                                    disabledContainerColor = MaterialTheme.colorScheme.primary,
+                                    disabledContentColor = MaterialTheme.colorScheme.onPrimary,
+                                )) { Text(option.id) }
+                        } else {
+                            OutlinedButton(onClick = onClick, enabled = enabled, modifier = modifier) {
+                                Text(option.id)
+                            }
+                        }
+                    }
+                }
+            }
+            if (rowIndex < rows.lastIndex) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        }
+    }
+}
 
 @Composable
 private fun V4ChoiceList(block: JsonObject, context: V4RenderContext) {

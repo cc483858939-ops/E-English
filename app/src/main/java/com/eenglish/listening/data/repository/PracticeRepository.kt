@@ -49,6 +49,11 @@ class PracticeRepository(private val database: PracticeDatabase) {
                 require(selected.length <= 512) { "Answer too long" }
                 dao.save(AnswerEntity(sessionId, questionId, selected))
             }
+            selected.isEmpty() -> {
+                // Empty is the existing clear-answer value used by single-choice and matching UI.
+                // Keep it in the same answer column; Grader treats it as unanswered.
+                dao.save(AnswerEntity(sessionId, questionId, selected))
+            }
             else -> {
                 require(question.options.any { it.id == selected }) { "Invalid answer selection" }
                 dao.save(AnswerEntity(sessionId, questionId, selected))
