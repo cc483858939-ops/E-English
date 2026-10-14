@@ -2,7 +2,7 @@
 
 原生 Android 离线听力练习 App。支持 Cambridge IELTS 5–21 按册本地资料包导入、册数 → Test → Part 列表、按需读取、单选 / 多选 / 匹配 / 填写与图片题，以及共享 MP3 播放、精听、永久高亮、Room 保存和历史记录。原有 Cambridge IELTS 9 / Test 1 / Part 3 样本继续兼容。
 
-公开仓库不包含版权题目、答案资源、原文、翻译、音频或包含这些资源的 APK。未导入本地资源时，应用显示“暂无已导入试题”，不会添加假试题。暂不发布安装包或创建 Release；当前 Debug 构建只用于开发验证。
+未导入本地资源时，应用显示“暂无已导入试题”，不会添加假试题。暂不发布安装包或创建 Release；当前 Debug 构建只用于开发验证。
 
 ## 本地导入
 
@@ -17,7 +17,7 @@ python tools/import_library.py 'D:/IELTS-Listening-Cambridge-5-13_已修复.zip'
 python tools/import_library.py 'D:/IELTS-Listening-Cambridge-5-13_已修复.zip' 'D:/IELTS-Listening-Cambridge-13-17.zip' 'D:/IELTS-Listening-Cambridge-18-21.zip' --output private-data/library/rechecked-batch --report private-data/library/recheck-audit.json
 ```
 
-真实扫描范围为 17 册、272 个不同 Part。六个遗留 Part 已定点恢复，当前实际可用 **272 个 Part、2720 道题、68 个完整 Test**。原有 266 个 Part 的 JSON、索引条目、音频和图片字节保持不变。修复依据、测试及本地新包位置见 [六个 Part 恢复报告](docs/pending-part-recovery.md)；[原资源清单](docs/library-source-audit.md) 和 [原导入验证说明](docs/library-import.md) 保留此前 266 个 Part 的历史验证结果。版权资源、原始来源记录和私有修正均在忽略目录。
+真实扫描范围为 17 册、272 个不同 Part。六个遗留 Part 已定点恢复，当前实际可用 **272 个 Part、2720 道题、68 个完整 Test**。原有 266 个 Part 的 JSON、索引条目、音频和图片字节保持不变。修复依据、测试及本地新包位置见 [六个 Part 恢复报告](docs/pending-part-recovery.md)；[原资源清单](docs/library-source-audit.md) 和 [原导入验证说明](docs/library-import.md) 保留此前 266 个 Part 的历史验证结果。原始来源记录和私有修正保留在忽略目录。
 
 上面的转换命令不带私有地图修正，仍用于复现原始资料的严格解析结果。当前完整的 17 个包在 `private-data/library/pending-six/updated-library/`；已有题库只需重新导入其中的 Cambridge 6、9、11。定点转换支持重复指定 `--part`，可靠来源修正通过 `--corrections` 传入原始资源哈希及证据，不会改写 ZIP。使用更新包需要包含双空填写支持的当前应用代码。
 
