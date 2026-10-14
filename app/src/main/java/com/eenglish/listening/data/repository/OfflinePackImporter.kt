@@ -2,14 +2,21 @@ package com.eenglish.listening.data.repository
 
 import android.util.AtomicFile
 import com.eenglish.listening.data.assets.PartCodec
+import com.eenglish.listening.data.assets.LayoutV4Codec
 import com.eenglish.listening.data.assets.QuestionLayoutCodec
 import com.eenglish.listening.domain.model.BookIndex
+import com.eenglish.listening.domain.layout.LayoutV4ImageMetadata
+import com.eenglish.listening.domain.layout.LayoutV4Validator
 import com.eenglish.listening.domain.layout.QuestionLayoutValidator
 import java.io.File
 import java.io.InputStream
 import java.security.MessageDigest
 import java.util.UUID
 import java.util.zip.ZipInputStream
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.intOrNull
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
@@ -110,23 +117,43 @@ class OfflinePackImporter(private val root: File) {
                         && part.audioSha256 == summary.audioSha256) { "Audio checksum mismatch" }
                     expectedNames += "listening/${part.id}/part.json"
                     expectedNames += "listening/${part.id}/audio.mp3"
+
+                    // Decode image bytes independently of their filename extension (some source
+                    // archives use .png names for JPEG data).
+                    val imageMetadata = linkedMapOf<String, LayoutV4ImageMetadata>()
+                    require(part.questions.flatMap { it.images }.toSet() == summary.imageHashes.keys) { "Image index mismatch" }
+                    summary.imageHashes.forEach { (path, hash) ->
+                        val imageFile = File(directory, path)
+                        if (!imageFile.isFile) throw PackImportException(ImportFailure.DAMAGED)
+                        val imageBytes = imageFile.readBytes()
+                        require(imageBytes.sha256() == hash) { "Image checksum mismatch" }
+                        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        android.graphics.BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size, bounds)
+                        require(bounds.outWidth > 0 && bounds.outHeight > 0 &&
+                            bounds.outWidth.toLong() * bounds.outHeight <= 32_000_000)
+                        imageMetadata[path] = LayoutV4ImageMetadata(hash, bounds.outWidth, bounds.outHeight)
+                        expectedNames += "listening/${part.id}/$path"
+                    }
                     val layoutFile = File(directory, "layout.json")
                     if (summary.layoutSha256 != null) {
                         if (!layoutFile.isFile) throw PackImportException(ImportFailure.DAMAGED)
                         val layoutBytes = layoutFile.readBytes()
                         require(layoutBytes.sha256() == summary.layoutSha256) { "Layout checksum mismatch" }
-                        val layout = QuestionLayoutCodec.decode(layoutBytes)
-                        QuestionLayoutValidator.validate(layout, part, metadataBytes)
+                        // Run the byte and nesting preflight before any JSON parser sees
+                        // this untrusted layout, including when discovering its version.
+                        val layoutEnvelope: JsonObject = LayoutV4Codec.decode(layoutBytes)
+                        val version = layoutEnvelope["schemaVersion"]?.jsonPrimitive?.intOrNull
+                        when (version) {
+                            1 -> {
+                                val layout = QuestionLayoutCodec.decode(layoutBytes)
+                                QuestionLayoutValidator.validate(layout, part, metadataBytes)
+                            }
+                            4 -> {
+                                LayoutV4Validator.validate(layoutEnvelope, part, metadataBytes, imageMetadata)
+                            }
+                            else -> throw IllegalArgumentException("UNSUPPORTED_LAYOUT_SCHEMA")
+                        }
                         expectedNames += "listening/${part.id}/layout.json"
-                    }
-                    require(part.questions.flatMap { it.images }.toSet() == summary.imageHashes.keys) { "Image index mismatch" }
-                    summary.imageHashes.forEach { (path, hash) ->
-                        if (!File(directory, path).isFile) throw PackImportException(ImportFailure.DAMAGED)
-                        require(File(directory, path).inputStream().sha256() == hash) { "Image checksum mismatch" }
-                        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                        android.graphics.BitmapFactory.decodeFile(File(directory, path).path, bounds)
-                        require(bounds.outWidth > 0 && bounds.outHeight > 0 && bounds.outWidth.toLong() * bounds.outHeight <= 32_000_000)
-                        expectedNames += "listening/${part.id}/$path"
                     }
                 }
                 require(names == expectedNames) { "Undeclared or missing pack entries" }

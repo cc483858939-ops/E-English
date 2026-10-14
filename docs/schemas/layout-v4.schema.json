@@ -1,0 +1,2459 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://eenglish.invalid/schemas/layout-v4.schema.json",
+  "title": "E-English layout.json v4 structural schema",
+  "$comment": "UTF-16 aggregate lengths, total Block counts, byte size, uniqueness scopes, rectangular grids, cross-document relations, and multiple-Slot choiceList constraints are enforced by the dependency-free offline validator.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "partId",
+    "basePartSha256",
+    "groups"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 4
+    },
+    "partId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "basePartSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "groups": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/group"
+      },
+      "minItems": 1,
+      "maxItems": 64
+    }
+  },
+  "additionalProperties": false,
+  "x-maxDocumentBytes": 4000000,
+  "x-maxTotalBlocks": 2048,
+  "x-maxTotalTextUtf16": 1000000,
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^[a-z][a-z0-9-]{0,79}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "textBlock": {
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "textId",
+        "text",
+        "source"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "text"
+        },
+        "textId": {
+          "$ref": "#/$defs/id"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "x-maxUtf16Units": 100000
+        },
+        "source": {
+          "oneOf": [
+            {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "required": [
+                    "kind",
+                    "field",
+                    "startUtf16",
+                    "endUtf16"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "partField"
+                    },
+                    "field": {
+                      "const": "part.instructions"
+                    },
+                    "startUtf16": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "endUtf16": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "kind",
+                    "field",
+                    "questionId",
+                    "startUtf16",
+                    "endUtf16"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "partField"
+                    },
+                    "field": {
+                      "const": "question.prompt"
+                    },
+                    "questionId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "startUtf16": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "endUtf16": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "kind",
+                    "field",
+                    "questionId",
+                    "startUtf16",
+                    "endUtf16"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "partField"
+                    },
+                    "field": {
+                      "const": "question.instructions"
+                    },
+                    "questionId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "startUtf16": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "endUtf16": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "kind",
+                    "field",
+                    "questionId",
+                    "startUtf16",
+                    "endUtf16"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "partField"
+                    },
+                    "field": {
+                      "const": "question.context"
+                    },
+                    "questionId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "startUtf16": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "endUtf16": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              ]
+            },
+            {
+              "type": "object",
+              "required": [
+                "kind",
+                "resource",
+                "sha256",
+                "normalization",
+                "startUtf16",
+                "endUtf16"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "resourceRange"
+                },
+                "resource": {
+                  "enum": [
+                    "content.html",
+                    "content.txt"
+                  ]
+                },
+                "sha256": {
+                  "$ref": "#/$defs/sha256"
+                },
+                "normalization": {
+                  "enum": [
+                    "htmlTextV1",
+                    "rawTextV1"
+                  ]
+                },
+                "startUtf16": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "endUtf16": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "resource": {
+                        "const": "content.html"
+                      }
+                    },
+                    "required": [
+                      "resource"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "normalization": {
+                        "const": "htmlTextV1"
+                      }
+                    }
+                  }
+                },
+                {
+                  "if": {
+                    "properties": {
+                      "resource": {
+                        "const": "content.txt"
+                      }
+                    },
+                    "required": [
+                      "resource"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "normalization": {
+                        "const": "rawTextV1"
+                      }
+                    }
+                  }
+                }
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "role": {
+          "const": "answerConnector"
+        },
+        "questionId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "role"
+                ]
+              },
+              {
+                "required": [
+                  "questionId"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "role",
+            "questionId"
+          ]
+        }
+      ]
+    },
+    "slotBlock": {
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "slotId"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "slot"
+        },
+        "slotId": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "additionalProperties": false
+    },
+    "choiceListBlock": {
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "optionPoolId",
+        "slotIds"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "choiceList"
+        },
+        "optionPoolId": {
+          "$ref": "#/$defs/id"
+        },
+        "slotIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false,
+      "x-multipleSlotsRequireResponseKind": "multipleChoice"
+    },
+    "imageEvidence": {
+      "type": "object",
+      "required": [
+        "kind",
+        "reviewId",
+        "imageSha256"
+      ],
+      "properties": {
+        "kind": {
+          "const": "reviewedMeasurement"
+        },
+        "reviewId": {
+          "$ref": "#/$defs/id"
+        },
+        "imageSha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "additionalProperties": false
+    },
+    "rectPx": {
+      "type": "object",
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
+      "properties": {
+        "x": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "y": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "overlay": {
+      "type": "object",
+      "required": [
+        "slotId",
+        "rectPx",
+        "evidence"
+      ],
+      "properties": {
+        "slotId": {
+          "$ref": "#/$defs/id"
+        },
+        "rectPx": {
+          "$ref": "#/$defs/rectPx"
+        },
+        "evidence": {
+          "$ref": "#/$defs/overlayEvidence"
+        }
+      },
+      "additionalProperties": false
+    },
+    "printedConnector": {
+      "type": "object",
+      "required": [
+        "questionId",
+        "text",
+        "rectPx",
+        "evidence"
+      ],
+      "properties": {
+        "questionId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rectPx": {
+          "$ref": "#/$defs/rectPx"
+        },
+        "evidence": {
+          "$ref": "#/$defs/imageEvidence"
+        }
+      },
+      "additionalProperties": false
+    },
+    "imageBlock": {
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "asset",
+        "widthPx",
+        "heightPx",
+        "overlays",
+        "printedConnectors"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "const": "image"
+        },
+        "asset": {
+          "type": "string",
+          "minLength": 1
+        },
+        "widthPx": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "heightPx": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "overlays": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/overlay"
+          },
+          "minItems": 0,
+          "maxItems": 128
+        },
+        "printedConnectors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/printedConnector"
+          },
+          "minItems": 0,
+          "maxItems": 128
+        }
+      },
+      "additionalProperties": false
+    },
+    "optionPool": {
+      "type": "object",
+      "required": [
+        "poolId",
+        "questionIds",
+        "optionIds"
+      ],
+      "properties": {
+        "poolId": {
+          "$ref": "#/$defs/id"
+        },
+        "questionIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "maxItems": 10,
+          "uniqueItems": true
+        },
+        "optionIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "slot": {
+      "type": "object",
+      "required": [
+        "slotId",
+        "questionId",
+        "slotIndex",
+        "kind"
+      ],
+      "properties": {
+        "slotId": {
+          "$ref": "#/$defs/id"
+        },
+        "questionId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "slotIndex": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "kind": {
+          "enum": [
+            "fill",
+            "singleChoice",
+            "multipleChoice",
+            "matching"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "fillResponse": {
+      "type": "object",
+      "required": [
+        "kind",
+        "questionIds",
+        "slotIds",
+        "scoring"
+      ],
+      "properties": {
+        "kind": {
+          "const": "fill"
+        },
+        "questionIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "maxItems": 10,
+          "uniqueItems": true
+        },
+        "slotIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 1,
+          "maxItems": 32,
+          "uniqueItems": true
+        },
+        "scoring": {
+          "const": "legacyPerQuestion"
+        },
+        "joiner": {
+          "enum": [
+            "and",
+            "or",
+            "to"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "properties": {
+            "slotIds": {
+              "minItems": 1,
+              "maxItems": 1
+            }
+          },
+          "not": {
+            "required": [
+              "joiner"
+            ]
+          }
+        },
+        {
+          "required": [
+            "joiner"
+          ],
+          "properties": {
+            "slotIds": {
+              "minItems": 2,
+              "maxItems": 2
+            }
+          }
+        }
+      ]
+    },
+    "singleChoiceResponse": {
+      "type": "object",
+      "required": [
+        "kind",
+        "questionIds",
+        "slotIds",
+        "scoring",
+        "optionPoolId"
+      ],
+      "properties": {
+        "kind": {
+          "const": "singleChoice"
+        },
+        "questionIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "maxItems": 1
+        },
+        "slotIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 1,
+          "maxItems": 1
+        },
+        "scoring": {
+          "const": "legacyPerQuestion"
+        },
+        "optionPoolId": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "additionalProperties": false
+    },
+    "matchingResponse": {
+      "type": "object",
+      "required": [
+        "kind",
+        "questionIds",
+        "slotIds",
+        "scoring",
+        "optionPoolId",
+        "reuse"
+      ],
+      "properties": {
+        "kind": {
+          "const": "matching"
+        },
+        "questionIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "maxItems": 10,
+          "uniqueItems": true
+        },
+        "slotIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 1,
+          "maxItems": 10,
+          "uniqueItems": true
+        },
+        "scoring": {
+          "const": "legacyPerQuestion"
+        },
+        "optionPoolId": {
+          "$ref": "#/$defs/id"
+        },
+        "reuse": {
+          "enum": [
+            "allowed",
+            "forbidden"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "multipleChoiceResponse": {
+      "type": "object",
+      "required": [
+        "kind",
+        "questionIds",
+        "slotIds",
+        "scoring",
+        "optionPoolId",
+        "selectCount",
+        "order",
+        "storage"
+      ],
+      "properties": {
+        "kind": {
+          "const": "multipleChoice"
+        },
+        "questionIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 2,
+          "maxItems": 6,
+          "uniqueItems": true
+        },
+        "slotIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 2,
+          "maxItems": 6,
+          "uniqueItems": true
+        },
+        "scoring": {
+          "const": "onePointPerCorrectOption"
+        },
+        "optionPoolId": {
+          "$ref": "#/$defs/id"
+        },
+        "selectCount": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 6
+        },
+        "order": {
+          "const": "unordered"
+        },
+        "storage": {
+          "const": "sameSortedSetOnEveryQuestion"
+        }
+      },
+      "additionalProperties": false
+    },
+    "response": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/fillResponse"
+        },
+        {
+          "$ref": "#/$defs/singleChoiceResponse"
+        },
+        {
+          "$ref": "#/$defs/matchingResponse"
+        },
+        {
+          "$ref": "#/$defs/multipleChoiceResponse"
+        }
+      ]
+    },
+    "group": {
+      "type": "object",
+      "required": [
+        "groupId",
+        "questionIds",
+        "promptHashes",
+        "instructions",
+        "optionPools",
+        "slots",
+        "responses",
+        "blocks"
+      ],
+      "properties": {
+        "groupId": {
+          "$ref": "#/$defs/id"
+        },
+        "questionIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "maxItems": 10,
+          "uniqueItems": true
+        },
+        "promptHashes": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 10,
+          "additionalProperties": {
+            "$ref": "#/$defs/sha256"
+          }
+        },
+        "instructions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ordinaryTextBlock"
+          },
+          "minItems": 0,
+          "maxItems": 32
+        },
+        "optionPools": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/optionPool"
+          },
+          "minItems": 0,
+          "maxItems": 32
+        },
+        "slots": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/slot"
+          },
+          "minItems": 0,
+          "maxItems": 32
+        },
+        "responses": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/response"
+          },
+          "minItems": 0,
+          "maxItems": 32
+        },
+        "blocks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/block1"
+          },
+          "minItems": 1,
+          "maxItems": 512
+        }
+      },
+      "additionalProperties": false,
+      "x-maxCountIncludingInstructionsAndNestedNodes": 512
+    },
+    "block1": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/textBlock"
+        },
+        {
+          "$ref": "#/$defs/slotBlock"
+        },
+        {
+          "$ref": "#/$defs/choiceListBlock"
+        },
+        {
+          "$ref": "#/$defs/imageBlock"
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "children"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "paragraph"
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/block2"
+              },
+              "minItems": 1,
+              "maxItems": 512
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "marker",
+            "children"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "listItem"
+            },
+            "marker": {
+              "enum": [
+                "bullet",
+                "numbered",
+                "none"
+              ]
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/block2"
+              },
+              "minItems": 1,
+              "maxItems": 512
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "children"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "formRow"
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/block2"
+              },
+              "minItems": 1,
+              "maxItems": 512
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "rows"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "table"
+            },
+            "rows": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "cells"
+                ],
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "cells": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "rowSpan",
+                        "colSpan",
+                        "children"
+                      ],
+                      "properties": {
+                        "id": {
+                          "$ref": "#/$defs/id"
+                        },
+                        "rowSpan": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "colSpan": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "children": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/$defs/block3"
+                          },
+                          "minItems": 1,
+                          "maxItems": 512
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "minItems": 1,
+                    "maxItems": 64
+                  }
+                },
+                "additionalProperties": false
+              },
+              "minItems": 1,
+              "maxItems": 64
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "nodes",
+            "edges"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "flow"
+            },
+            "nodes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "children"
+                ],
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "children": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/block3"
+                    },
+                    "minItems": 1,
+                    "maxItems": 512
+                  }
+                },
+                "additionalProperties": false
+              },
+              "minItems": 1,
+              "maxItems": 64
+            },
+            "edges": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "from",
+                  "to"
+                ],
+                "properties": {
+                  "from": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "to": {
+                    "$ref": "#/$defs/id"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "minItems": 0,
+              "maxItems": 128
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "block2": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/textBlock"
+        },
+        {
+          "$ref": "#/$defs/slotBlock"
+        },
+        {
+          "$ref": "#/$defs/choiceListBlock"
+        },
+        {
+          "$ref": "#/$defs/imageBlock"
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "children"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "paragraph"
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/block3"
+              },
+              "minItems": 1,
+              "maxItems": 512
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "marker",
+            "children"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "listItem"
+            },
+            "marker": {
+              "enum": [
+                "bullet",
+                "numbered",
+                "none"
+              ]
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/block3"
+              },
+              "minItems": 1,
+              "maxItems": 512
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "children"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "formRow"
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/block3"
+              },
+              "minItems": 1,
+              "maxItems": 512
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "rows"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "table"
+            },
+            "rows": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "cells"
+                ],
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "cells": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "rowSpan",
+                        "colSpan",
+                        "children"
+                      ],
+                      "properties": {
+                        "id": {
+                          "$ref": "#/$defs/id"
+                        },
+                        "rowSpan": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "colSpan": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "children": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/$defs/block4"
+                          },
+                          "minItems": 1,
+                          "maxItems": 512
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "minItems": 1,
+                    "maxItems": 64
+                  }
+                },
+                "additionalProperties": false
+              },
+              "minItems": 1,
+              "maxItems": 64
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "nodes",
+            "edges"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "flow"
+            },
+            "nodes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "children"
+                ],
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "children": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/block4"
+                    },
+                    "minItems": 1,
+                    "maxItems": 512
+                  }
+                },
+                "additionalProperties": false
+              },
+              "minItems": 1,
+              "maxItems": 64
+            },
+            "edges": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "from",
+                  "to"
+                ],
+                "properties": {
+                  "from": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "to": {
+                    "$ref": "#/$defs/id"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "minItems": 0,
+              "maxItems": 128
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "block3": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/textBlock"
+        },
+        {
+          "$ref": "#/$defs/slotBlock"
+        },
+        {
+          "$ref": "#/$defs/choiceListBlock"
+        },
+        {
+          "$ref": "#/$defs/imageBlock"
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "children"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "paragraph"
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/block4"
+              },
+              "minItems": 1,
+              "maxItems": 512
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "marker",
+            "children"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "listItem"
+            },
+            "marker": {
+              "enum": [
+                "bullet",
+                "numbered",
+                "none"
+              ]
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/block4"
+              },
+              "minItems": 1,
+              "maxItems": 512
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "children"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "formRow"
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/block4"
+              },
+              "minItems": 1,
+              "maxItems": 512
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "rows"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "table"
+            },
+            "rows": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "cells"
+                ],
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "cells": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "rowSpan",
+                        "colSpan",
+                        "children"
+                      ],
+                      "properties": {
+                        "id": {
+                          "$ref": "#/$defs/id"
+                        },
+                        "rowSpan": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "colSpan": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "children": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/$defs/block5"
+                          },
+                          "minItems": 1,
+                          "maxItems": 512
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "minItems": 1,
+                    "maxItems": 64
+                  }
+                },
+                "additionalProperties": false
+              },
+              "minItems": 1,
+              "maxItems": 64
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "nodes",
+            "edges"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "flow"
+            },
+            "nodes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "children"
+                ],
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "children": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/block5"
+                    },
+                    "minItems": 1,
+                    "maxItems": 512
+                  }
+                },
+                "additionalProperties": false
+              },
+              "minItems": 1,
+              "maxItems": 64
+            },
+            "edges": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "from",
+                  "to"
+                ],
+                "properties": {
+                  "from": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "to": {
+                    "$ref": "#/$defs/id"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "minItems": 0,
+              "maxItems": 128
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "block4": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/textBlock"
+        },
+        {
+          "$ref": "#/$defs/slotBlock"
+        },
+        {
+          "$ref": "#/$defs/choiceListBlock"
+        },
+        {
+          "$ref": "#/$defs/imageBlock"
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "children"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "paragraph"
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/block5"
+              },
+              "minItems": 1,
+              "maxItems": 512
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "marker",
+            "children"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "listItem"
+            },
+            "marker": {
+              "enum": [
+                "bullet",
+                "numbered",
+                "none"
+              ]
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/block5"
+              },
+              "minItems": 1,
+              "maxItems": 512
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "children"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "formRow"
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/block5"
+              },
+              "minItems": 1,
+              "maxItems": 512
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "rows"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "table"
+            },
+            "rows": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "cells"
+                ],
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "cells": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "rowSpan",
+                        "colSpan",
+                        "children"
+                      ],
+                      "properties": {
+                        "id": {
+                          "$ref": "#/$defs/id"
+                        },
+                        "rowSpan": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "colSpan": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "children": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/$defs/block6"
+                          },
+                          "minItems": 1,
+                          "maxItems": 512
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "minItems": 1,
+                    "maxItems": 64
+                  }
+                },
+                "additionalProperties": false
+              },
+              "minItems": 1,
+              "maxItems": 64
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "nodes",
+            "edges"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "flow"
+            },
+            "nodes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "children"
+                ],
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "children": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/block6"
+                    },
+                    "minItems": 1,
+                    "maxItems": 512
+                  }
+                },
+                "additionalProperties": false
+              },
+              "minItems": 1,
+              "maxItems": 64
+            },
+            "edges": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "from",
+                  "to"
+                ],
+                "properties": {
+                  "from": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "to": {
+                    "$ref": "#/$defs/id"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "minItems": 0,
+              "maxItems": 128
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "block5": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/textBlock"
+        },
+        {
+          "$ref": "#/$defs/slotBlock"
+        },
+        {
+          "$ref": "#/$defs/choiceListBlock"
+        },
+        {
+          "$ref": "#/$defs/imageBlock"
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "children"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "paragraph"
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/block6"
+              },
+              "minItems": 1,
+              "maxItems": 512
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "marker",
+            "children"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "listItem"
+            },
+            "marker": {
+              "enum": [
+                "bullet",
+                "numbered",
+                "none"
+              ]
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/block6"
+              },
+              "minItems": 1,
+              "maxItems": 512
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "children"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "formRow"
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/block6"
+              },
+              "minItems": 1,
+              "maxItems": 512
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "rows"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "table"
+            },
+            "rows": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "cells"
+                ],
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "cells": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "rowSpan",
+                        "colSpan",
+                        "children"
+                      ],
+                      "properties": {
+                        "id": {
+                          "$ref": "#/$defs/id"
+                        },
+                        "rowSpan": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "colSpan": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "children": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/$defs/block7"
+                          },
+                          "minItems": 1,
+                          "maxItems": 512
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "minItems": 1,
+                    "maxItems": 64
+                  }
+                },
+                "additionalProperties": false
+              },
+              "minItems": 1,
+              "maxItems": 64
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "nodes",
+            "edges"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "flow"
+            },
+            "nodes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "children"
+                ],
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "children": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/block7"
+                    },
+                    "minItems": 1,
+                    "maxItems": 512
+                  }
+                },
+                "additionalProperties": false
+              },
+              "minItems": 1,
+              "maxItems": 64
+            },
+            "edges": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "from",
+                  "to"
+                ],
+                "properties": {
+                  "from": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "to": {
+                    "$ref": "#/$defs/id"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "minItems": 0,
+              "maxItems": 128
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "block6": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/textBlock"
+        },
+        {
+          "$ref": "#/$defs/slotBlock"
+        },
+        {
+          "$ref": "#/$defs/choiceListBlock"
+        },
+        {
+          "$ref": "#/$defs/imageBlock"
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "children"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "paragraph"
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/block7"
+              },
+              "minItems": 1,
+              "maxItems": 512
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "marker",
+            "children"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "listItem"
+            },
+            "marker": {
+              "enum": [
+                "bullet",
+                "numbered",
+                "none"
+              ]
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/block7"
+              },
+              "minItems": 1,
+              "maxItems": 512
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "children"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "formRow"
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/block7"
+              },
+              "minItems": 1,
+              "maxItems": 512
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "rows"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "table"
+            },
+            "rows": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "cells"
+                ],
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "cells": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "rowSpan",
+                        "colSpan",
+                        "children"
+                      ],
+                      "properties": {
+                        "id": {
+                          "$ref": "#/$defs/id"
+                        },
+                        "rowSpan": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "colSpan": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "children": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/$defs/block8"
+                          },
+                          "minItems": 1,
+                          "maxItems": 512
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "minItems": 1,
+                    "maxItems": 64
+                  }
+                },
+                "additionalProperties": false
+              },
+              "minItems": 1,
+              "maxItems": 64
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "nodes",
+            "edges"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "flow"
+            },
+            "nodes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "children"
+                ],
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "children": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/block8"
+                    },
+                    "minItems": 1,
+                    "maxItems": 512
+                  }
+                },
+                "additionalProperties": false
+              },
+              "minItems": 1,
+              "maxItems": 64
+            },
+            "edges": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "from",
+                  "to"
+                ],
+                "properties": {
+                  "from": {
+                    "$ref": "#/$defs/id"
+                  },
+                  "to": {
+                    "$ref": "#/$defs/id"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "minItems": 0,
+              "maxItems": 128
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "block7": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/textBlock"
+        },
+        {
+          "$ref": "#/$defs/slotBlock"
+        },
+        {
+          "$ref": "#/$defs/choiceListBlock"
+        },
+        {
+          "$ref": "#/$defs/imageBlock"
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "children"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "paragraph"
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/block8"
+              },
+              "minItems": 1,
+              "maxItems": 512
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "marker",
+            "children"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "listItem"
+            },
+            "marker": {
+              "enum": [
+                "bullet",
+                "numbered",
+                "none"
+              ]
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/block8"
+              },
+              "minItems": 1,
+              "maxItems": 512
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "id",
+            "type",
+            "children"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/id"
+            },
+            "type": {
+              "const": "formRow"
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/block8"
+              },
+              "minItems": 1,
+              "maxItems": 512
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "block8": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/textBlock"
+        },
+        {
+          "$ref": "#/$defs/slotBlock"
+        },
+        {
+          "$ref": "#/$defs/choiceListBlock"
+        },
+        {
+          "$ref": "#/$defs/imageBlock"
+        }
+      ]
+    },
+    "block9": {
+      "not": {}
+    },
+    "ordinaryTextBlock": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/textBlock"
+        },
+        {
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "role"
+                ]
+              },
+              {
+                "required": [
+                  "questionId"
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "overlayEvidence": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/imageEvidence"
+        },
+        {
+          "$ref": "#/$defs/modelMeasurementEvidence"
+        }
+      ]
+    },
+    "modelMeasurementEvidence": {
+      "type": "object",
+      "required": [
+        "kind",
+        "measurementId",
+        "imageSha256"
+      ],
+      "properties": {
+        "kind": {
+          "const": "modelMeasurement"
+        },
+        "measurementId": {
+          "$ref": "#/$defs/id"
+        },
+        "imageSha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

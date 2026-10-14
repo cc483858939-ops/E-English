@@ -4,6 +4,7 @@ import android.view.ViewTreeObserver
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -18,12 +19,17 @@ import com.eenglish.listening.audio.AudioState
 import com.eenglish.listening.ui.components.*
 import com.eenglish.listening.viewmodel.PracticeUiState
 import com.eenglish.listening.domain.grading.Grade
-import com.eenglish.listening.domain.grading.Grader
+import com.eenglish.listening.domain.layout.LayoutV4AnswerStatus
 import com.eenglish.listening.domain.model.SessionStatus
 import com.eenglish.listening.domain.gapfill.QuestionLayoutDisplayParser
 import com.eenglish.listening.domain.gapfill.QuestionDisplayItem
 import java.text.DateFormat
 import java.util.Date
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 @Composable
 fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Unit, onSeek: (Long) -> Unit,
@@ -37,6 +43,9 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
     var activeQuestionNumber by remember { mutableStateOf<Int?>(null) }
     val displayItems = remember(state.questions, state.questionLayout) {
         QuestionLayoutDisplayParser.parse(state.questions, state.questionLayout?.groups.orEmpty())
+    }
+    val v4Groups = remember(state.questionLayoutV4) {
+        state.questionLayoutV4?.get("groups")?.jsonArray?.mapNotNull { it as? JsonObject }.orEmpty()
     }
     val resumeDraft = state.submitted && state.history.firstOrNull { it.session.partId == state.part?.id }
         ?.session?.status == SessionStatus.IN_PROGRESS
@@ -91,9 +100,31 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
                                     Text("已提交的尝试不可修改", style = MaterialTheme.typography.labelMedium)
                                 }
                             }
-                        } else Text("已保存 ${state.questions.size - Grader.missingCount(state.questions, state.answers)} / ${state.questions.size} 题", modifier = Modifier.padding(vertical = 8.dp))
+                        } else {
+                            val missing = LayoutV4AnswerStatus.missingCount(
+                                state.questions, state.questionLayoutV4, state.answers)
+                            Text("已保存 ${state.questions.size - missing} / ${state.questions.size} 题", modifier = Modifier.padding(vertical = 8.dp))
+                        }
                     }
-                    itemsIndexed(displayItems, key = { _, entry -> when (entry) {
+                    if (state.questionLayoutV4 != null) {
+                        val partQuestions = state.part?.questions.orEmpty().associateBy { it.id }
+                        items(v4Groups, key = { group -> group["groupId"]?.jsonPrimitive?.contentOrNull.orEmpty() }) { group ->
+                            val groupQuestions = group["questionIds"]?.jsonArray.orEmpty()
+                                .mapNotNull { partQuestions[it.jsonPrimitive.content] }
+                            if (groupQuestions.isNotEmpty()) LayoutV4GroupView(
+                                group = group,
+                                questions = groupQuestions,
+                                answers = state.answers + state.inlineDrafts,
+                                editable = !state.submitted && !state.submitting && state.attempt != null,
+                                submitted = state.submitted,
+                                saving = state.saving,
+                                onSelect = onSelect,
+                                onEdit = onInlineEdit,
+                                onCommit = onInlineCommit,
+                                onActivate = { activeQuestionNumber = it },
+                            )
+                        }
+                    } else itemsIndexed(displayItems, key = { _, entry -> when (entry) {
                         is QuestionDisplayItem.Single -> entry.question.id
                         is QuestionDisplayItem.InlineGroup -> "inline-${entry.group.questions.first().id}"
                         is QuestionDisplayItem.StructuredLayout -> "layout-${entry.group.groupId}"

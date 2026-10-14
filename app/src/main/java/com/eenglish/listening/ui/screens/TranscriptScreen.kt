@@ -22,6 +22,10 @@ import com.eenglish.listening.domain.gapfill.QuestionLayoutDisplayParser
 import com.eenglish.listening.domain.gapfill.QuestionDisplayItem
 import com.eenglish.listening.viewmodel.PracticeUiState
 import com.eenglish.listening.viewmodel.TranscriptMode
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 @Composable
 fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Unit, onSeek: (Long) -> Unit,
@@ -47,6 +51,16 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
     var showJump by rememberSaveable(sessionId, state.part?.id) { mutableStateOf(false) }
     val index = questions.indexOfFirst { it.number == questionNumber }.coerceAtLeast(0)
     val question = questions.getOrNull(index)
+    val activeV4Group = remember(state.questionLayoutV4, question?.id) {
+        state.questionLayoutV4?.get("groups")?.jsonArray?.firstOrNull { element ->
+            val ids = (element as? JsonObject)?.get("questionIds") as? kotlinx.serialization.json.JsonArray
+            ids?.any { it.jsonPrimitive.content == question?.id } == true
+        } as? JsonObject
+    }
+    val v4QuestionsById = remember(state.part) { state.part?.questions.orEmpty().associateBy { it.id } }
+    val activeV4Questions = remember(activeV4Group, v4QuestionsById) {
+        activeV4Group?.get("questionIds")?.jsonArray?.mapNotNull { v4QuestionsById[it.jsonPrimitive.content] }.orEmpty()
+    }
     val activeGroup = displayItems.asSequence().filterIsInstance<QuestionDisplayItem.InlineGroup>()
         .firstOrNull { item -> item.group.questions.any { it.id == question?.id } }?.group
     val activeStructured = displayItems.asSequence().filterIsInstance<QuestionDisplayItem.StructuredLayout>()
@@ -68,7 +82,7 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
     var restoreRequest by remember { mutableIntStateOf(0) }
     var cardHeaderHeightPx by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
-    LaunchedEffect(activeGroup?.questions?.first()?.id ?: activeStructured?.group?.groupId ?:
+    LaunchedEffect(activeV4Group?.get("groupId")?.jsonPrimitive?.content ?: activeGroup?.questions?.first()?.id ?: activeStructured?.group?.groupId ?:
         activeImageGroup?.questions?.first()?.id ?: activeMatching?.questions?.first()?.id ?:
         activeMultipleChoice?.groupId ?: activeTextFallback?.questions?.first()?.id ?: question?.id) {
         questionScroll.scrollTo(0)
@@ -201,9 +215,9 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
                                 expanded = !expanded
                                 restoreRequest++
                             },
-                            onPrevious = { questionNumber = questions[index - 1].number },
-                            onNext = { questionNumber = questions[index + 1].number },
-                            onJump = { showJump = true }, onSelect = { onSelect(question.id, it) },
+                            onPrevious = { onFlushInline(); questionNumber = questions[index - 1].number },
+                            onNext = { onFlushInline(); questionNumber = questions[index + 1].number },
+                            onJump = { onFlushInline(); showJump = true }, onSelect = { onSelect(question.id, it) },
                             inlineGroup = activeGroup, structuredGroup = activeStructured?.group,
                             structuredQuestions = activeStructured?.questions.orEmpty(),
                             answers = state.answers + state.inlineDrafts,
@@ -214,6 +228,8 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
                             sharedMatchingGroup = activeMatching,
                             sharedMultipleChoiceGroup = activeMultipleChoice,
                             sharedTextFallbackGroup = activeTextFallback,
+                            v4Group = activeV4Group,
+                            v4GroupQuestions = activeV4Questions,
                             onHeaderSize = { cardHeaderHeightPx = it },
                             onResizeStarted = {
                                 resizeReadingAnchor = transcriptScroll.value

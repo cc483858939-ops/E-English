@@ -2,17 +2,23 @@ package com.eenglish.listening.data.repository
 
 import android.content.res.AssetManager
 import com.eenglish.listening.data.assets.PartCodec
+import com.eenglish.listening.data.assets.LayoutV4Codec
 import com.eenglish.listening.data.assets.QuestionLayoutCodec
 import com.eenglish.listening.domain.model.ListeningPart
 import com.eenglish.listening.domain.model.PartSummary
 import com.eenglish.listening.domain.model.BookIndex
 import com.eenglish.listening.domain.model.QuestionLayoutDocument
 import com.eenglish.listening.domain.layout.QuestionLayoutValidator
+import com.eenglish.listening.domain.layout.LayoutV4ImageMetadata
+import com.eenglish.listening.domain.layout.LayoutV4Validator
 import java.io.File
 import java.io.InputStream
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.security.MessageDigest
@@ -20,10 +26,23 @@ import java.security.MessageDigest
 private fun ByteArray.sha256(): String = MessageDigest.getInstance("SHA-256")
     .digest(this).joinToString("") { "%02x".format(it) }
 
+/** Keep a bundled Part primary while checking V4 against the package's exact raw bytes. */
+internal fun validateV4ForDisplayedPart(
+    displayedPart: ListeningPart,
+    packPartBytes: ByteArray,
+    layoutBytes: ByteArray,
+    imageMetadata: Map<String, LayoutV4ImageMetadata>,
+): JsonObject {
+    val decodedPackPart = PartCodec.decode(packPartBytes.toString(Charsets.UTF_8))
+    require(decodedPackPart == displayedPart) { "DISPLAYED_PART_MISMATCH" }
+    val layout = LayoutV4Codec.decode(layoutBytes)
+    return LayoutV4Validator.validate(layout, decodedPackPart, packPartBytes, imageMetadata)
+}
+
 class PartRepository(private val assets: AssetManager, private val library: File? = null) {
     private val importer = library?.let { OfflinePackImporter(it) }
     private val locations = java.util.concurrent.ConcurrentHashMap<String, File>()
-    private data class LayoutSource(val directory: File, val sha256: String)
+    private data class LayoutSource(val directory: File, val sha256: String, val imageHashes: Map<String, String>)
     private val layoutSources = java.util.concurrent.ConcurrentHashMap<String, LayoutSource>()
     private val imageCache = object : LinkedHashMap<String, Bitmap>(4, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Bitmap>?) = size > 4
@@ -38,7 +57,7 @@ class PartRepository(private val assets: AssetManager, private val library: File
             index.parts.onEach {
                 val directory = File(root, "listening/${it.id}")
                 locations[it.id] = directory
-                it.layoutSha256?.let { hash -> layoutSources[it.id] = LayoutSource(directory, hash) }
+                it.layoutSha256?.let { hash -> layoutSources[it.id] = LayoutSource(directory, hash, it.imageHashes) }
             }
         }
         val bundled = assets.list("listening").orEmpty().sorted().map { directory ->
@@ -68,6 +87,8 @@ class PartRepository(private val assets: AssetManager, private val library: File
         try {
             val bytes = File(source.directory, "layout.json").readBytes()
             if (bytes.sha256() != source.sha256) return@withContext null
+            if ((Json.parseToJsonElement(bytes.toString(Charsets.UTF_8)) as? JsonObject)
+                    ?.get("schemaVersion")?.jsonPrimitive?.intOrNull != 1) return@withContext null
             val partBytes = locations[part.id]?.let { File(it, "part.json").readBytes() }
                 ?: assets.open("listening/${part.id}/part.json").use { it.readBytes() }
             val decodedPart = PartCodec.decode(partBytes.toString(Charsets.UTF_8))
@@ -81,13 +102,44 @@ class PartRepository(private val assets: AssetManager, private val library: File
         }
     }
 
+    /** V4 binds to the installed pack's original Part bytes, even when a bundled C9 sample is primary. */
+    suspend fun loadLayoutV4(part: ListeningPart): JsonObject? = withContext(Dispatchers.IO) {
+        val source = layoutSources[part.id] ?: return@withContext null
+        try {
+            val bytes = File(source.directory, "layout.json").readBytes()
+            if (bytes.sha256() != source.sha256) return@withContext null
+            val layout = LayoutV4Codec.decode(bytes)
+            if ((layout["schemaVersion"] as? kotlinx.serialization.json.JsonPrimitive)?.intOrNull != 4) {
+                return@withContext null
+            }
+            val partBytes = File(source.directory, "part.json").readBytes()
+            val images = linkedMapOf<String, LayoutV4ImageMetadata>()
+            source.imageHashes.forEach { (path, hash) ->
+                val raw = File(source.directory, path).readBytes()
+                if (raw.sha256() != hash) return@withContext null
+                val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeByteArray(raw, 0, raw.size, options)
+                if (options.outWidth <= 0 || options.outHeight <= 0 ||
+                    options.outWidth.toLong() * options.outHeight > 32_000_000) return@withContext null
+                images[path] = LayoutV4ImageMetadata(hash, options.outWidth, options.outHeight)
+            }
+            // This also confirms that any bundled sample used for practice decodes to the same
+            // Part, while basePartSha256 is checked against the installed package's raw bytes.
+            validateV4ForDisplayedPart(part, partBytes, bytes, images)
+        } catch (_: Exception) {
+            android.util.Log.w("PartRepository", "Invalid v4 layout; using legacy rendering")
+            null
+        }
+    }
+
     fun audioPath(part: ListeningPart): String = locations[part.id]?.let { File(it, "audio.mp3").toURI().toString() } ?: part.audioPath
 
     suspend fun readImage(partId: String, path: String): Bitmap? = withContext(Dispatchers.IO) {
         require(path.matches(Regex("[a-zA-Z0-9_-]+\\.(png|jpg|jpeg|webp)")))
         val key = "$partId/$path"
         synchronized(imageCache) { imageCache[key] } ?: run {
-            val raw = locations[partId]?.let { File(it, path).readBytes() }
+            val raw = layoutSources[partId]?.directory?.let { File(it, path) }?.takeIf { it.isFile }?.readBytes()
+                ?: locations[partId]?.let { File(it, path).readBytes() }
                 ?: assets.open("listening/$partId/$path").use { it.readBytes() }
             val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeByteArray(raw, 0, raw.size, options)

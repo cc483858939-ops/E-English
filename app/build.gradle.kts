@@ -15,8 +15,8 @@ android {
         applicationId = "com.eenglish.listening"
         minSdk = 26
         targetSdk = 36
-        versionCode = 8
-        versionName = "0.1.7"
+        versionCode = 12
+        versionName = "1.0.0"
         testInstrumentationRunner = "com.eenglish.listening.ListeningTestRunner"
     }
 

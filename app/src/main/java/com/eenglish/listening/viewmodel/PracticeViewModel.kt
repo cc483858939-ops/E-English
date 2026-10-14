@@ -7,7 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.eenglish.listening.ListeningApplication
 import com.eenglish.listening.audio.ListeningAudioController
 import com.eenglish.listening.domain.model.*
-import com.eenglish.listening.domain.grading.Grader
+import com.eenglish.listening.domain.layout.LayoutV4AnswerStatus
 import android.net.Uri
 import android.provider.OpenableColumns
 import com.eenglish.listening.data.repository.BatchImportUiState
@@ -21,12 +21,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonObject
 
 data class PracticeUiState(
     val loading: Boolean = true,
     val parts: List<PartSummary> = emptyList(),
     val part: ListeningPart? = null,
     val questionLayout: QuestionLayoutDocument? = null,
+    val questionLayoutV4: JsonObject? = null,
     val attempt: PracticeAttempt? = null,
     val history: List<PracticeAttempt> = emptyList(),
     val answers: Map<String, String> = emptyMap(),
@@ -80,7 +82,9 @@ class PracticeViewModel(application: Application, private val savedStateHandle: 
                 val selected = parts.firstOrNull { it.id == savedStateHandle.get<String>(PART_KEY) } ?: parts.firstOrNull()
                 val part = selected?.let { app.parts.loadPart(it.id) }
                 val questionLayout = part?.let { app.parts.loadLayout(it) }
-                mutableState.update { it.copy(parts = parts, part = part, questionLayout = questionLayout) }
+                val questionLayoutV4 = part?.let { app.parts.loadLayoutV4(it) }
+                mutableState.update { it.copy(parts = parts, part = part, questionLayout = questionLayout,
+                    questionLayoutV4 = questionLayoutV4) }
                 part?.let { audio.load(app.parts.audioPath(it)) }
                 repository.observeAll().collect { attempts -> reconcile(attempts) }
             } catch (cancelled: CancellationException) { throw cancelled }
@@ -113,11 +117,13 @@ class PracticeViewModel(application: Application, private val savedStateHandle: 
         queuedInline.clear()
         submitAfterSave = false
         mutableState.update { it.copy(part = null, attempt = null, answers = emptyMap(),
-            questionLayout = null, inlineDrafts = emptyMap(), loading = true, confirmMissing = null) }
+            questionLayout = null, questionLayoutV4 = null, inlineDrafts = emptyMap(), loading = true, confirmMissing = null) }
         enqueue {
             val part = app.parts.loadPart(partId)
             val questionLayout = app.parts.loadLayout(part)
-            mutableState.update { it.copy(part = part, questionLayout = questionLayout) }
+            val questionLayoutV4 = app.parts.loadLayoutV4(part)
+            mutableState.update { it.copy(part = part, questionLayout = questionLayout,
+                questionLayoutV4 = questionLayoutV4) }
             audio.load(app.parts.audioPath(part))
             savedStateHandle[SESSION_KEY] = repository.resumeOrCreate(part)
         }
@@ -147,7 +153,9 @@ class PracticeViewModel(application: Application, private val savedStateHandle: 
             val currentPart = mutableState.value.part
             val parts = app.parts.loadParts()
             val questionLayout = currentPart?.let { app.parts.loadLayout(it) }
-            mutableState.update { it.copy(parts = parts, questionLayout = questionLayout) }
+            val questionLayoutV4 = currentPart?.let { app.parts.loadLayoutV4(it) }
+            mutableState.update { it.copy(parts = parts, questionLayout = questionLayout,
+                questionLayoutV4 = questionLayoutV4) }
         }
     }
     fun dismissBatchImport() {
@@ -220,7 +228,8 @@ class PracticeViewModel(application: Application, private val savedStateHandle: 
             if (state.saving) submitAfterSave = true
             return
         }
-        val missing = Grader.missingCount(state.questions, state.answers)
+        val missing = LayoutV4AnswerStatus.missingCount(
+            state.questions, state.questionLayoutV4, state.answers)
         if (missing > 0) mutableState.update { it.copy(confirmMissing = missing) } else confirmSubmit()
     }
     fun dismissSubmit() { mutableState.update { it.copy(confirmMissing = null) } }

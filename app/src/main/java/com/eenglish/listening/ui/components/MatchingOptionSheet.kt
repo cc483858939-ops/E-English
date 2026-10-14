@@ -45,6 +45,7 @@ fun MatchingOptionSheet(
     editable: Boolean,
     onSelect: (String) -> Unit,
     onDismiss: () -> Unit,
+    disabledOptionIds: Set<String> = emptySet(),
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
@@ -71,15 +72,16 @@ fun MatchingOptionSheet(
             options.forEach { option ->
                 val label = matchingOptionLabel(option)
                 val chosen = selectedAnswer.equals(option.id, ignoreCase = true)
+                val usedElsewhere = disabledOptionIds.any { it.equals(option.id, ignoreCase = true) }
                 Row(
                     Modifier.fillMaxWidth()
                         .heightIn(min = 56.dp)
                         .selectable(
                             selected = chosen,
-                            enabled = editable && !selecting,
+                            enabled = editable && !selecting && !usedElsewhere,
                             role = Role.RadioButton,
                             onClick = {
-                                if (!editable || selecting) return@selectable
+                                if (!editable || selecting || usedElsewhere) return@selectable
                                 selecting = true
                                 onSelect(option.id)
                                 scope.launch {
@@ -88,12 +90,15 @@ fun MatchingOptionSheet(
                                 }
                             },
                         )
-                        .semantics { contentDescription = label }
+                        .semantics {
+                            contentDescription = if (usedElsewhere) "$label，已被其他题使用" else label
+                        }
                         .testTag("matching-option-${question.number}-${option.id}")
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    RadioButton(selected = chosen, onClick = null, enabled = editable && !selecting)
+                    RadioButton(selected = chosen, onClick = null,
+                        enabled = editable && !selecting && !usedElsewhere)
                     Spacer(Modifier.width(12.dp))
                     Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
                 }

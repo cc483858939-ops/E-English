@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextOverflow
 import com.eenglish.listening.domain.model.Question
+import kotlinx.serialization.json.JsonObject
 import com.eenglish.listening.domain.model.QuestionLayoutGroup
 import com.eenglish.listening.domain.gapfill.GapFillGroup
 import com.eenglish.listening.domain.gapfill.SharedImageQuestionGroup
@@ -42,6 +43,7 @@ fun ResizableQuestionPanel(question: Question, selected: String?, expanded: Bool
     sharedMatchingGroup: SharedMatchingQuestionGroup? = null,
     sharedMultipleChoiceGroup: SharedMultipleChoiceQuestionGroup? = null,
     sharedTextFallbackGroup: SharedTextFallbackQuestionGroup? = null,
+    v4Group: JsonObject? = null, v4GroupQuestions: List<Question> = emptyList(),
     answers: Map<String, String> = emptyMap(), saving: Boolean = false,
     dirty: Boolean = false,
     onGroupSelect: (String, String) -> Unit = { _, _ -> },
@@ -96,7 +98,11 @@ fun ResizableQuestionPanel(question: Question, selected: String?, expanded: Bool
                     .verticalScroll(questionScroll).padding(start = 4.dp, end = 4.dp, bottom = questionEndSpace)) {
                     if (!fixedNavigation) navigation()
                     if (submitted) Text("已提交 · 只读", style = MaterialTheme.typography.labelMedium)
-                    if (inlineGroup != null) {
+                    if (v4Group != null && v4GroupQuestions.isNotEmpty()) {
+                        LayoutV4GroupView(v4Group, v4GroupQuestions, answers, editable, submitted, saving,
+                            onSelect = onGroupSelect, onEdit = onGroupEdit, onCommit = onGroupCommit,
+                            onActivate = onActivate)
+                    } else if (inlineGroup != null) {
                         InlineGapFillGroup(inlineGroup, answers, editable, submitted, saving,
                             activeQuestionNumber = question.number, onActivate = onActivate,
                             onSelect = onGroupSelect, onEdit = onGroupEdit,

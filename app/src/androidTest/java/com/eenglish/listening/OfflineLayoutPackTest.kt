@@ -2,6 +2,7 @@ package com.eenglish.listening
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import android.graphics.Bitmap
 import com.eenglish.listening.data.assets.PartCodec
 import com.eenglish.listening.data.repository.OfflinePackImporter
 import com.eenglish.listening.data.repository.PartRepository
@@ -21,7 +22,7 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.*
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -94,6 +95,134 @@ class OfflineLayoutPackTest {
         return output.toByteArray()
     }
 
+    private fun imageBytes(): ByteArray = ByteArrayOutputStream().also { output ->
+        // The synthetic asset keeps a .png filename while the raw bytes are JPEG, like some source packs.
+        Bitmap.createBitmap(100, 40, Bitmap.Config.ARGB_8888).compress(Bitmap.CompressFormat.JPEG, 100, output)
+    }.toByteArray()
+
+    private fun partWithImage(): ListeningPart {
+        val base = part()
+        return base.copy(questions = base.questions.mapIndexed { index, question ->
+            if (index == 0) question.copy(images = listOf("diagram.png")) else question
+        }).validate()
+    }
+
+    private fun v4Layout(part: ListeningPart, partBytes: ByteArray, image: ByteArray, corruption: String?): ByteArray {
+        if (corruption == "deepJson") {
+            val depth = 2_000
+            return ("{\"schemaVersion\":4,\"nested\":" + "[".repeat(depth) + "0" + "]".repeat(depth) + "}")
+                .toByteArray(Charsets.UTF_8)
+        }
+        val imageHash = sha(image)
+        val slots = part.questions.map { question -> buildJsonObject {
+            put("slotId", "slot-q${question.number}-0"); put("questionId", question.id)
+            put("slotIndex", 0); put("kind", "fill")
+        } }
+        val responses = part.questions.map { question -> buildJsonObject {
+            put("kind", "fill"); put("questionIds", buildJsonArray { add(question.id) })
+            put("slotIds", buildJsonArray { add("slot-q${question.number}-0") })
+            put("scoring", "legacyPerQuestion")
+        } }
+        fun text(question: Question) = buildJsonObject {
+            put("id", "b-text-q${question.number}"); put("type", "text"); put("textId", "t-q${question.number}")
+            put("text", question.prompt); put("questionId", question.id)
+            put("source", buildJsonObject {
+                put("kind", "partField"); put("field", "question.prompt"); put("questionId", question.id)
+                put("startUtf16", 0); put("endUtf16", question.prompt.length)
+            })
+        }
+        fun slot(question: Question) = buildJsonObject {
+            put("id", "b-slot-q${question.number}"); put("type", "slot"); put("slotId", "slot-q${question.number}-0")
+        }
+        val blocks = buildList {
+            val first = part.questions.first()
+            add(text(first))
+            add(buildJsonObject {
+                put("id", "b-image"); put("type", "image"); put("asset", "diagram.png")
+                put("widthPx", 100); put("heightPx", 40)
+                put("overlays", buildJsonArray {
+                    add(buildJsonObject {
+                        put("slotId", "slot-q${first.number}-0")
+                        put("rectPx", buildJsonObject { put("x", 10); put("y", 8); put("width", 30); put("height", 12) })
+                        put("evidence", buildJsonObject {
+                            put("kind", "modelMeasurement"); put("measurementId", "model-q${first.number}-0")
+                            put("imageSha256", imageHash)
+                        })
+                    })
+                })
+                put("printedConnectors", buildJsonArray { })
+            })
+            part.questions.drop(1).forEach { question ->
+                add(buildJsonObject {
+                    put("id", "b-row-q${question.number}"); put("type", "formRow")
+                    put("children", buildJsonArray { add(text(question)); add(slot(question)) })
+                })
+            }
+        }
+        var layout = buildJsonObject {
+            put("schemaVersion", 4); put("partId", part.id); put("basePartSha256", sha(partBytes))
+            put("groups", buildJsonArray { add(buildJsonObject {
+                put("groupId", "${part.id}-layout-test-q1-q10")
+                put("questionIds", buildJsonArray { part.questions.forEach { add(it.id) } })
+                put("promptHashes", buildJsonObject {
+                    part.questions.forEach { put(it.id, sha(it.prompt.toByteArray(Charsets.UTF_8))) }
+                })
+                put("instructions", buildJsonArray { }); put("optionPools", buildJsonArray { })
+                put("slots", buildJsonArray { slots.forEach(::add) })
+                put("responses", buildJsonArray { responses.forEach(::add) })
+                put("blocks", buildJsonArray { blocks.forEach(::add) })
+            }) })
+        }
+        if (corruption != null && corruption != "layoutHash") {
+            val group = layout.getValue("groups").jsonArray.single().jsonObject
+            val originalBlocks = group.getValue("blocks").jsonArray.toMutableList()
+            val imageBlock = originalBlocks[1].jsonObject
+            when (corruption) {
+                "partBinding" -> layout = JsonObject(layout.toMutableMap() + ("basePartSha256" to JsonPrimitive("c".repeat(64))))
+                "imageDimensions" -> originalBlocks[1] = JsonObject(imageBlock.toMutableMap() + ("widthPx" to JsonPrimitive(99)))
+                "duplicateSlot" -> {
+                    val overlays = imageBlock.getValue("overlays").jsonArray
+                    originalBlocks[1] = JsonObject(imageBlock.toMutableMap() + ("overlays" to JsonArray(overlays + overlays.single())))
+                }
+                "outsideHotspot" -> {
+                    val overlay = imageBlock.getValue("overlays").jsonArray.single().jsonObject
+                    val rect = buildJsonObject { put("x", 95); put("y", 8); put("width", 30); put("height", 12) }
+                    originalBlocks[1] = JsonObject(imageBlock.toMutableMap() + ("overlays" to JsonArray(
+                        listOf(JsonObject(overlay.toMutableMap() + ("rectPx" to rect))))))
+                }
+                else -> error("Unknown v4 corruption: $corruption")
+            }
+            if (corruption != "partBinding") {
+                val changedGroup = JsonObject(group.toMutableMap() + ("blocks" to JsonArray(originalBlocks)))
+                layout = JsonObject(layout.toMutableMap() + ("groups" to JsonArray(listOf(changedGroup))))
+            }
+        }
+        return json.encodeToString(layout).toByteArray(Charsets.UTF_8)
+    }
+
+    private fun v4Pack(part: ListeningPart, corruption: String? = null): ByteArray {
+        val partBytes = json.encodeToString(part).toByteArray(Charsets.UTF_8)
+        val audio = byteArrayOf(1, 2, 3, 4)
+        val image = imageBytes()
+        val layout = v4Layout(part, partBytes, image, corruption)
+        val layoutHash = if (corruption == "layoutHash") "f".repeat(64) else sha(layout)
+        val summary = PartSummary(part.id, part.book, part.test, part.part, part.title,
+            part.questions.size, part.questions.first().number, part.questions.last().number,
+            audio.size.toLong(), sha(partBytes), sha(audio), mapOf("diagram.png" to sha(image)), layoutHash)
+        val index = BookIndex(2, part.book, listOf(summary))
+        return ByteArrayOutputStream().also { output ->
+            ZipOutputStream(output).use { zip ->
+                fun entry(name: String, bytes: ByteArray) {
+                    zip.putNextEntry(ZipEntry(name)); zip.write(bytes); zip.closeEntry()
+                }
+                entry("index.json", json.encodeToString(index).toByteArray(Charsets.UTF_8))
+                val prefix = "listening/${part.id}/"
+                entry(prefix + "part.json", partBytes); entry(prefix + "audio.mp3", audio)
+                entry(prefix + "diagram.png", image); entry(prefix + "layout.json", layout)
+            }
+        }.toByteArray()
+    }
+
     @Test fun legacyImportThenLayoutOnlyUpdatePublishesAtomicallyAndRetainsPriorDirectory() = runBlocking {
         val cache = InstrumentationRegistry.getInstrumentation().targetContext.cacheDir
         val root = File(cache, "offline-layout-${UUID.randomUUID()}")
@@ -130,6 +259,56 @@ class OfflineLayoutPackTest {
                 fail("Undeclared ZIP entry must be rejected")
             } catch (_: IllegalArgumentException) { }
             assertEquals(beforeConflict, importer.installed())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test fun v4ImportValidatesRawPartImageAndSlotPlacementBeforeAtomicCataloguePublish() = runBlocking {
+        val cache = InstrumentationRegistry.getInstrumentation().targetContext.cacheDir
+        val root = File(cache, "offline-layout-v4-${UUID.randomUUID()}")
+        assertTrue(root.mkdir())
+        try {
+            val importer = OfflinePackImporter(root)
+            val fixture = partWithImage()
+            val installed = importer.install(ByteArrayInputStream(v4Pack(fixture)))
+            assertEquals("The pack-index schema remains v2", 2, installed.schemaVersion)
+            assertNotNull(installed.parts.single().layoutSha256)
+            val activeCatalog = importer.installed()
+            val activeFolder = activeCatalog.getValue(fixture.book)
+            val activeDirectory = File(root, activeFolder)
+            assertTrue(activeDirectory.isDirectory)
+
+            val repository = PartRepository(InstrumentationRegistry.getInstrumentation().targetContext.assets, root)
+            repository.loadParts()
+            val installedPart = repository.loadPart(fixture.id)
+            assertEquals(fixture, installedPart)
+            assertNotNull("V4 remains bound to the installed raw Part bytes", repository.loadLayoutV4(installedPart))
+            val decodedImage = repository.readImage(fixture.id, "diagram.png")
+            assertNotNull("Image decoding follows bytes, not the .png filename", decodedImage)
+            assertEquals(100, decodedImage!!.width)
+            assertEquals(40, decodedImage.height)
+            decodedImage.recycle()
+
+            val expectedErrors = mapOf(
+                "layoutHash" to "Layout checksum mismatch",
+                "partBinding" to "BASE_PART_HASH_MISMATCH",
+                "imageDimensions" to "IMAGE_DIMENSIONS_MISMATCH",
+                "duplicateSlot" to "SLOT_DISPLAY_COUNT_INVALID",
+                "outsideHotspot" to "OVERLAY_OUT_OF_BOUNDS",
+                "deepJson" to "LAYOUT_NESTING_TOO_DEEP",
+            )
+            expectedErrors.forEach { (corruption, expected) ->
+                try {
+                    importer.install(ByteArrayInputStream(v4Pack(fixture, corruption)))
+                    fail("Corrupt V4 pack should be rejected: $corruption")
+                } catch (error: IllegalArgumentException) {
+                    assertTrue("$corruption should report $expected, got ${error.message}",
+                        error.message.orEmpty().contains(expected, ignoreCase = true))
+                }
+                assertEquals("Rejected $corruption pack cannot move catalogue pointer", activeCatalog, importer.installed())
+                assertTrue("Rejected $corruption pack keeps prior installed directory", activeDirectory.isDirectory)
+            }
         } finally {
             root.deleteRecursively()
         }
