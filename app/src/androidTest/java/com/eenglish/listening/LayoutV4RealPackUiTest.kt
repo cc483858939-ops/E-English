@@ -16,6 +16,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -46,13 +47,22 @@ class LayoutV4RealPackUiTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
 
     @Test fun selectedRealPartGroupsRenderAndUseTheirDeclaredV4Interactions() = runBlocking {
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val staged = File(context.cacheDir, "v4-real-test-packs")
-        val importRoot = File(context.cacheDir, "layout-v4-real-${UUID.randomUUID()}")
+        val targetContext = InstrumentationRegistry.getInstrumentation().targetContext
+        val staged = File(targetContext.cacheDir, "v4-real-test-packs-${UUID.randomUUID()}")
+        val importRoot = File(targetContext.cacheDir, "layout-v4-real-${UUID.randomUUID()}")
         val books = listOf(5, 6, 9, 10, 11, 12)
+        val privateDevicePacks = "/data/local/tmp/eenglish-v4-real-test-packs"
+        check(staged.mkdirs() || staged.isDirectory)
         books.forEach { book ->
-            assertTrue("Missing required staged Cambridge $book real test pack at ${File(staged, "cambridge-$book-v4-test.eelpack").absolutePath}",
-                File(staged, "cambridge-$book-v4-test.eelpack").isFile)
+            val name = "cambridge-$book-v4-test.eelpack"
+            val destination = File(staged, name)
+            val shell = InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(
+                "cat $privateDevicePacks/$name")
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(shell).use { input ->
+                destination.outputStream().use { output -> input.copyTo(output) }
+            }
+            assertTrue("Missing required staged Cambridge $book real test pack at $privateDevicePacks/$name",
+                destination.isFile && destination.length() > 0)
         }
         check(importRoot.mkdir())
         try {
@@ -62,7 +72,7 @@ class LayoutV4RealPackUiTest {
                 assertEquals(2, index.schemaVersion)
                 assertTrue(index.parts.all { it.layoutSha256 != null })
             }
-            val repository = PartRepository(context.assets, importRoot)
+            val repository = PartRepository(targetContext.assets, importRoot)
             repository.loadParts()
 
             fun load(partId: String, questionNumber: Int): Triple<ListeningPart, JsonObject, JsonObject> = runBlocking {
@@ -77,6 +87,9 @@ class LayoutV4RealPackUiTest {
             }
 
             fun question(part: ListeningPart, number: Int) = part.questions.single { it.number == number }
+
+            fun sha256(bytes: ByteArray): String = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(bytes).joinToString("") { "%02x".format(it) }
 
             fun render(part: ListeningPart, group: JsonObject): androidx.compose.runtime.MutableState<Map<String, String>> {
                 val answers = mutableStateOf(emptyMap<String, String>())
@@ -103,13 +116,19 @@ class LayoutV4RealPackUiTest {
                 return answers
             }
 
-            fun showPracticePage(part: ListeningPart, layout: JsonObject): androidx.compose.runtime.MutableState<PracticeUiState> {
-                val attempt = PracticeAttempt(
+            fun showPracticePage(part: ListeningPart, layout: JsonObject,
+                retainedState: PracticeUiState? = null): androidx.compose.runtime.MutableState<PracticeUiState> {
+                val attempt = retainedState?.attempt ?: PracticeAttempt(
                     PracticeSession("real-v4-${UUID.randomUUID()}", part.id, SessionStatus.IN_PROGRESS,
                         1L, null, null, part.questions.size), part.questions, emptyList())
-                val state = mutableStateOf(PracticeUiState(loading = false, part = part,
+                val state = mutableStateOf(retainedState ?: PracticeUiState(loading = false, part = part,
                     questionLayoutV4 = layout, attempt = attempt))
                 val imageLoader: suspend (String) -> Bitmap? = { path -> repository.readImage(part.id, path) }
+                fun commitDraft(questionId: String) {
+                    val draft = state.value.inlineDrafts[questionId]
+                    if (draft != null) state.value = state.value.copy(answers = state.value.answers + (questionId to draft),
+                        inlineDrafts = state.value.inlineDrafts - questionId)
+                }
                 compose.activity.runOnUiThread {
                     compose.activity.setContent {
                         CompositionLocalProvider(LocalQuestionImages provides imageLoader) {
@@ -122,12 +141,8 @@ class LayoutV4RealPackUiTest {
                                     onDismiss = {}, onNew = {}, onHistory = {},
                                     onInlineEdit = { id, value -> state.value = state.value.copy(
                                         inlineDrafts = state.value.inlineDrafts + (id to value)) },
-                                    onInlineCommit = { id ->
-                                        val draft = state.value.inlineDrafts[id]
-                                        if (draft != null) state.value = state.value.copy(
-                                            answers = state.value.answers + (id to draft),
-                                            inlineDrafts = state.value.inlineDrafts - id)
-                                    })
+                                    onInlineCommit = ::commitDraft,
+                                    onFlushInline = { state.value.inlineDrafts.keys.toList().forEach(::commitDraft) })
                             }
                         }
                     }
@@ -202,6 +217,18 @@ class LayoutV4RealPackUiTest {
                 val x = bounds.center.x.toInt()
                 val y = bounds.center.y.toInt()
                 physicalTapAt(x, y, "tag=$tag bounds=$bounds $evidence")
+            }
+
+            fun saveDeviceScreenshot(name: String) {
+                val bitmap = requireNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
+                val output = File(requireNotNull(targetContext.getExternalFilesDir(null)), "layout-v4-pilot/$name.png")
+                check(output.parentFile?.mkdirs() == true || output.parentFile?.isDirectory == true)
+                output.outputStream().use { stream ->
+                    assertTrue("Failed to encode screenshot $output", bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream))
+                }
+                bitmap.recycle()
+                Log.i("LayoutV4PilotScreenshot", output.absolutePath)
+                println("PILOT_SCREENSHOT ${output.absolutePath}")
             }
 
             fun farthestBlankPixel(image: JsonObject): Pair<Int, Int> {
@@ -341,6 +368,158 @@ class LayoutV4RealPackUiTest {
                 compose.onNodeWithTag("transcript-player").assertExists()
                 compose.onNodeWithTag(groupTag).assertExists()
                 compose.onNodeWithTag(canvasTag).assertExists()
+            }
+
+            // C11 T3 P3 Q21-Q26: only this group uses a separate full-width answer list.
+            run {
+                val (part, layout, group) = load("cambridge-11-test-3-part-3", 21)
+                val groupId = group.getValue("groupId").jsonPrimitive.content
+                assertEquals("cambridge-11-test-3-part-3-story-drawing-changes-q21-q26", groupId)
+                assertEquals((21..26).map { question(part, it).id }, group.getValue("questionIds").jsonArray.map {
+                    it.jsonPrimitive.content
+                })
+                val image = group.getValue("blocks").jsonArray.map { it.jsonObject }
+                    .single { it["type"]?.jsonPrimitive?.content == "image" }
+                assertEquals("question-image-01.jpg", image.getValue("asset").jsonPrimitive.content)
+                assertEquals(1356, image.getValue("widthPx").jsonPrimitive.int)
+                assertEquals(482, image.getValue("heightPx").jsonPrimitive.int)
+                assertEquals(6, image.getValue("overlays").jsonArray.size)
+                assertEquals(setOf("4d8b7c3868d36607f6fb74eab75c791f7c2f6d6c7635987bfbf2e1ef59f9ca47"),
+                    image.getValue("overlays").jsonArray.map { it.jsonObject.getValue("evidence").jsonObject
+                        .getValue("imageSha256").jsonPrimitive.content }.toSet())
+                val packFolder = importer.installed().getValue(11)
+                val rawImage = File(importRoot, "$packFolder/listening/${part.id}/${image.getValue("asset").jsonPrimitive.content}")
+                    .readBytes()
+                assertEquals("The installed pack image must match the reviewed V4 source hash",
+                    "4d8b7c3868d36607f6fb74eab75c791f7c2f6d6c7635987bfbf2e1ef59f9ca47", sha256(rawImage))
+
+                val groupTag = "layout-v4-group-$groupId"
+                var state = showPracticePage(part, layout)
+                compose.onNodeWithTag(groupTag).performScrollTo().assertExists()
+                compose.onNodeWithText("点击图片放大").assertExists()
+                (21..26).forEach { number ->
+                    compose.onAllNodesWithTag("v4-image-list-row-$number").assertCountEquals(1)
+                    compose.onAllNodesWithTag("v4-image-list-input-$number").assertCountEquals(1)
+                    compose.onNodeWithTag("v4-hotspot-target-$number-1").assertDoesNotExist()
+                }
+                compose.onNodeWithTag("v4-hotspot-input-21-1").assertDoesNotExist()
+                val canvasTag = "v4-image-canvas-${image.getValue("id").jsonPrimitive.content}"
+                compose.onAllNodesWithTag(canvasTag).assertCountEquals(1)
+                compose.onAllNodesWithContentDescription("题目图片").assertCountEquals(1)
+                compose.onNodeWithTag("v4-image-list-input-21").assertIsDisplayed()
+                saveDeviceScreenshot("c11-t3-p3-practice-idle")
+
+                // Tap the actual Q21 rectangle in screen coordinates. It must open the plain
+                // image viewer, not route to the legacy hotspot answer dialog.
+                val q21 = question(part, 21)
+                val q21Overlay = image.getValue("overlays").jsonArray.map { it.jsonObject }.single { overlay ->
+                    overlay.getValue("slotId").jsonPrimitive.content == "slot-q21-0"
+                }
+                val rect = q21Overlay.getValue("rectPx").jsonObject
+                val canvas = screenBounds(canvasTag)
+                val srcX = rect.getValue("x").jsonPrimitive.int + rect.getValue("width").jsonPrimitive.int / 2f
+                val srcY = rect.getValue("y").jsonPrimitive.int + rect.getValue("height").jsonPrimitive.int / 2f
+                val tapX = (canvas.left + canvas.width * srcX / image.getValue("widthPx").jsonPrimitive.int).toInt()
+                val tapY = (canvas.top + canvas.height * srcY / image.getValue("heightPx").jsonPrimitive.int).toInt()
+                physicalTapAt(tapX, tapY, "C11 Q21 source hotspot rectangle $rect canvas=$canvas")
+                val zoomCanvasTag = "v4-image-canvas-zoom-${image.getValue("id").jsonPrimitive.content}"
+                compose.waitUntil(10_000) {
+                    compose.onAllNodesWithTag(zoomCanvasTag).fetchSemanticsNodes().isNotEmpty()
+                }
+                compose.onNodeWithTag("v4-hotspot-input-21-1").assertDoesNotExist()
+                (21..26).forEach { number -> compose.onNodeWithTag("v4-hotspot-target-zoom-$number-1").assertDoesNotExist() }
+                compose.onAllNodesWithTag(canvasTag).assertCountEquals(1)
+                compose.onAllNodesWithTag(zoomCanvasTag).assertCountEquals(1)
+                compose.onNodeWithTag(zoomCanvasTag).performTouchInput {
+                    val c = center
+                    pinch(start0 = Offset(c.x - 28f, c.y), end0 = Offset(c.x - 90f, c.y),
+                        start1 = Offset(c.x + 28f, c.y), end1 = Offset(c.x + 90f, c.y))
+                    swipe(start = Offset(c.x - 100f, c.y), end = Offset(c.x + 100f, c.y), durationMillis = 450)
+                }
+                compose.waitForIdle()
+                compose.onNodeWithTag(zoomCanvasTag).assertExists()
+                compose.onNodeWithText("关闭 · 双指缩放与平移").performClick()
+                compose.onAllNodesWithTag(zoomCanvasTag).assertCountEquals(0)
+                compose.onAllNodesWithTag(canvasTag).assertCountEquals(1)
+
+                val q21Tag = "v4-image-list-input-21"
+                val q22Tag = "v4-image-list-input-22"
+                compose.onNodeWithTag(q21Tag).performScrollTo().performClick().performTextInput("pilot21")
+                compose.onNodeWithTag(q21Tag).performImeAction()
+                compose.onNodeWithTag(q22Tag).assertIsFocused().assertIsDisplayed()
+                compose.onNodeWithTag(q22Tag).performTextInput("pilot22")
+                compose.waitForIdle()
+                compose.onNodeWithTag(q22Tag).assertTextEquals("pilot22")
+                saveDeviceScreenshot("c11-t3-p3-practice-typing-q22")
+                // The existing page action flushes inline drafts before navigation.
+                compose.onNodeWithText("查看原文").performClick()
+                compose.runOnIdle {
+                    assertEquals("pilot21", state.value.answers[q21.id])
+                    assertEquals("pilot22", state.value.answers[question(part, 22).id])
+                    assertTrue(state.value.inlineDrafts.isEmpty())
+                }
+
+                compose.activity.runOnUiThread { compose.activity.setContent { Text("pilot-route-away") } }
+                compose.waitForIdle()
+                state = showPracticePage(part, layout, state.value)
+                compose.onNodeWithTag(q21Tag).performScrollTo().assertTextEquals("pilot21")
+                compose.onNodeWithTag(q22Tag).performScrollTo().assertTextEquals("pilot22")
+
+                compose.onNodeWithTag(q21Tag).performClick().performTextClearance()
+                compose.onNodeWithTag(q21Tag).performImeAction()
+                compose.runOnIdle {
+                    assertEquals("", state.value.answers[q21.id])
+                    assertEquals(1, LayoutV4AnswerStatus.missingCount(listOf(q21), layout, state.value.answers))
+                }
+
+                // The transcript panel uses the same pilot renderer and remains editable.
+                compose.activity.runOnUiThread {
+                    compose.activity.setContent {
+                        CompositionLocalProvider(LocalQuestionImages provides { path -> repository.readImage(part.id, path) }) {
+                            ListeningTheme {
+                                TranscriptScreen(state.value, AudioState(ready = true, durationMs = 10_000),
+                                    onToggle = {}, onSeek = {}, mode = TranscriptMode.ENGLISH, onModeChange = {},
+                                    onBack = {}, onSelect = { id, value -> state.value = state.value.copy(
+                                        answers = state.value.answers + (id to value)) },
+                                    onInlineEdit = { id, value -> state.value = state.value.copy(
+                                        inlineDrafts = state.value.inlineDrafts + (id to value)) },
+                                    onInlineCommit = { id ->
+                                        val draft = state.value.inlineDrafts[id]
+                                        if (draft != null) state.value = state.value.copy(
+                                            answers = state.value.answers + (id to draft), inlineDrafts = state.value.inlineDrafts - id)
+                                    })
+                            }
+                        }
+                    }
+                }
+                compose.waitForIdle()
+                compose.onNodeWithTag("transcript-header").assertExists()
+                compose.onNodeWithTag(groupTag).assertExists()
+                compose.onNodeWithTag(q22Tag).performScrollTo().assertTextEquals("pilot22")
+                compose.onNodeWithTag("v4-image-list-input-23").performScrollTo().performClick()
+                    .performTextInput("transcript-edit")
+                compose.runOnIdle { assertEquals("transcript-edit", state.value.inlineDrafts[question(part, 23).id]) }
+
+                val retainedAnswers = state.value.answers + state.value.inlineDrafts
+                val grade = Grader.grade(part.questions, retainedAnswers)
+                val currentAttempt = requireNotNull(state.value.attempt)
+                val submittedState = state.value.copy(answers = retainedAnswers, inlineDrafts = emptyMap(),
+                    attempt = currentAttempt.copy(session = currentAttempt.session.copy(
+                        status = SessionStatus.SUBMITTED, submittedAt = 2L, correctCount = grade.correctCount)))
+                compose.activity.runOnUiThread {
+                    compose.activity.setContent {
+                        CompositionLocalProvider(LocalQuestionImages provides { path -> repository.readImage(part.id, path) }) {
+                            ListeningTheme {
+                                PracticeScreen(submittedState, AudioState(ready = true), {}, {}, { _, _ -> }, {}, {},
+                                    onSubmit = {}, onConfirm = {}, onDismiss = {}, onNew = {}, onHistory = {})
+                            }
+                        }
+                    }
+                }
+                compose.waitForIdle()
+                compose.onNodeWithTag("grade-summary").assertTextContains(
+                    "正确 ${grade.correctCount} / ${grade.totalCount}", substring = true)
+                compose.onNodeWithTag(q22Tag).performScrollTo().assertIsNotEnabled().assertTextEquals("pilot22")
             }
 
             // C6 T1 P1 is authoritative real data for list numbering: its first two list items

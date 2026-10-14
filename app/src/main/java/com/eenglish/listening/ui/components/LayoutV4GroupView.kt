@@ -11,7 +11,10 @@ import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -19,12 +22,16 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -32,6 +39,8 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -39,10 +48,14 @@ import com.eenglish.listening.domain.grading.Grader
 import com.eenglish.listening.domain.model.Option
 import com.eenglish.listening.domain.model.Question
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
 import kotlin.math.hypot
 import kotlin.math.min
+
+private const val IMAGE_ANSWER_LIST_PILOT_GROUP_ID =
+    "cambridge-11-test-3-part-3-story-drawing-changes-q21-q26"
 
 /** Renders one validated v4 group. The Part remains the only source of option labels and answers. */
 @Composable
@@ -59,6 +72,7 @@ fun LayoutV4GroupView(
     onActivate: (Int) -> Unit = {},
 ) {
     val groupId = group.v4String("groupId")
+    val imageAnswerListPilot = groupId == IMAGE_ANSWER_LIST_PILOT_GROUP_ID
     val questionById = remember(questions) { questions.associateBy { it.id } }
     val slots = remember(group) { group.v4Array("slots").map { it.jsonObject }.associateBy { it.v4String("slotId") } }
     val responses = remember(group) {
@@ -71,9 +85,18 @@ fun LayoutV4GroupView(
     }
     val pools = remember(group) { group.v4Array("optionPools").map { it.jsonObject }.associateBy { it.v4String("poolId") } }
     var activeSlotId by remember(groupId) { mutableStateOf<String?>(null) }
-    val context = remember(group, questions, answers, editable, submitted, saving, slots, responses, pools) {
+    var activePilotQuestionId by remember(groupId) { mutableStateOf<String?>(null) }
+    val focusManager = LocalFocusManager.current
+    val context = remember(group, questions, answers, editable, submitted, saving, slots, responses, pools,
+        imageAnswerListPilot, activePilotQuestionId) {
         V4RenderContext(group, questionById, slots, responses, pools, answers, editable, submitted,
-            saving, onSelect, onEdit, onCommit, onActivate, { slotId -> activeSlotId = slotId })
+            saving, onSelect, onEdit, onCommit, onActivate, { slotId -> activeSlotId = slotId },
+            imageAnswerListPilot, {
+                val focusedQuestionId = activePilotQuestionId
+                focusManager.clearFocus(force = true)
+                if (focusedQuestionId != null) onCommit(focusedQuestionId)
+                activePilotQuestionId = null
+            })
     }
     val hasMatchingChoiceList = remember(group) {
         val poolIds = group.v4Array("optionPools").map { it.jsonObject.v4String("poolId") }.toSet()
@@ -101,6 +124,9 @@ fun LayoutV4GroupView(
         }
         group.v4Array("blocks").forEachIndexed { index, item ->
             V4BlockView(item.jsonObject, context, 0, numberedOrdinalAt(group.v4Array("blocks"), index))
+        }
+        if (imageAnswerListPilot) {
+            V4ImageAnswerList(group, context) { questionId -> activePilotQuestionId = questionId }
         }
         if (submitted) {
             questions.forEach { question ->
@@ -159,6 +185,8 @@ private data class V4RenderContext(
     val onCommit: (String) -> Unit,
     val onActivate: (Int) -> Unit,
     val onOpenSlot: (String) -> Unit,
+    val imageAnswerListPilot: Boolean,
+    val beforePilotImageZoom: () -> Unit,
 )
 
 @Composable
@@ -329,6 +357,97 @@ private fun V4SlotControl(slot: JsonObject, context: V4RenderContext) {
 }
 
 @Composable
+private fun V4ImageAnswerList(
+    group: JsonObject,
+    context: V4RenderContext,
+    onFocusedQuestionChanged: (String?) -> Unit,
+) {
+    val rows = remember(group, context.slots, context.responses, context.questionById) {
+        group.v4Array("questionIds").mapNotNull { questionElement ->
+            val questionId = questionElement.jsonPrimitive.content
+            val question = context.questionById[questionId] ?: return@mapNotNull null
+            val slot = context.slots.values.singleOrNull { it.v4String("questionId") == questionId }
+                ?: return@mapNotNull null
+            val response = context.responses[slot.v4String("slotId")] ?: return@mapNotNull null
+            if (slot.v4String("kind") != "fill" || response.v4String("kind") != "fill") return@mapNotNull null
+            PilotFillRow(question, slot, response)
+        }
+    }
+    val focusRequesters = remember(rows.map { it.question.id }) { rows.map { FocusRequester() } }
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val scope = rememberCoroutineScope()
+
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        rows.forEachIndexed { index, row ->
+            val question = row.question
+            val slotIndex = row.slot.v4Int("slotIndex")
+            val value = splitForLayout(question, row.response, context.answers[question.id].orEmpty())
+                .getOrElse(slotIndex) { "" }
+            val bringIntoView = remember(question.id) { BringIntoViewRequester() }
+            var hadFocus by remember(question.id) { mutableStateOf(false) }
+            Row(
+                Modifier.fillMaxWidth().bringIntoViewRequester(bringIntoView)
+                    .testTag("v4-image-list-row-${question.number}"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(question.number.toString(), style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.widthIn(min = 48.dp).semantics {
+                        contentDescription = "题号 ${question.number}"
+                    })
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = { next ->
+                        if (next.length <= 512) {
+                            context.onEdit(question.id, encodeForLayout(question, row.response, listOf(next)))
+                        }
+                    },
+                    enabled = context.editable && !context.submitted,
+                    modifier = Modifier.weight(1f).focusRequester(focusRequesters[index])
+                        .onFocusChanged { state ->
+                            if (state.isFocused) {
+                                hadFocus = true
+                                onFocusedQuestionChanged(question.id)
+                                context.onActivate(question.number)
+                                scope.launch { bringIntoView.bringIntoView() }
+                            } else if (hadFocus) {
+                                hadFocus = false
+                                onFocusedQuestionChanged(null)
+                                context.onCommit(question.id)
+                            }
+                        }
+                        .testTag("v4-image-list-input-${question.number}")
+                        .semantics {
+                            contentDescription = "Q${question.number} 答案，${if (value.isBlank()) "未作答" else "已作答"}"
+                        },
+                    placeholder = { Text("填写答案") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Text,
+                        imeAction = if (index == rows.lastIndex) ImeAction.Done else ImeAction.Next,
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onNext = {
+                            context.onCommit(question.id)
+                            focusRequesters.getOrNull(index + 1)?.requestFocus()
+                        },
+                        onDone = {
+                            context.onCommit(question.id)
+                            focusManager.clearFocus(force = true)
+                            keyboard?.hide()
+                        },
+                    ),
+                )
+            }
+            if (index < rows.lastIndex) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        }
+    }
+}
+
+private data class PilotFillRow(val question: Question, val slot: JsonObject, val response: JsonObject)
+
+@Composable
 private fun V4ChoiceList(block: JsonObject, context: V4RenderContext) {
     val poolId = block.v4String("optionPoolId")
     val pool = context.pools[poolId] ?: return
@@ -426,12 +545,20 @@ private fun V4ImageBlock(block: JsonObject, context: V4RenderContext) {
     val overlays = block.v4Array("overlays").map { it.jsonObject }
     val actualWidth = block.v4Int("widthPx")
     val actualHeight = block.v4Int("heightPx")
+    val drawOverlays = !context.imageAnswerListPilot
+    val hitTestOverlays = !context.imageAnswerListPilot
+    val onMainImageTap: () -> Unit = {
+        if (context.imageAnswerListPilot) context.beforePilotImageZoom()
+        zoom = true
+    }
     if (image != null) {
         V4HotspotCanvas(image!!, actualWidth, actualHeight, overlays, context, interactive,
             Modifier.fillMaxWidth().aspectRatio(actualWidth.toFloat() / actualHeight),
             zoomable = false, canvasTag = "v4-image-canvas-$imageId",
-            targetTagPrefix = "v4-hotspot-target", onBlankTap = { zoom = true })
-        Text("点击图片中的空位作答；点图片空白处可放大", style = MaterialTheme.typography.labelSmall)
+            targetTagPrefix = "v4-hotspot-target", onBlankTap = onMainImageTap,
+            drawOverlays = drawOverlays, hitTestOverlays = hitTestOverlays)
+        Text(if (context.imageAnswerListPilot) "点击图片放大" else "点击图片中的空位作答；点图片空白处可放大",
+            style = MaterialTheme.typography.labelSmall)
         if (zoom) Dialog(onDismissRequest = { zoom = false }) {
             Surface(shape = RoundedCornerShape(18.dp)) {
                 Column(Modifier.fillMaxWidth().heightIn(max = 620.dp).padding(8.dp)) {
@@ -440,7 +567,8 @@ private fun V4ImageBlock(block: JsonObject, context: V4RenderContext) {
                     }
                     V4HotspotCanvas(image!!, actualWidth, actualHeight, overlays, context, interactive,
                         Modifier.fillMaxWidth().height(540.dp).clipToBounds(), zoomable = true,
-                        canvasTag = "v4-image-canvas-zoom-$imageId", targetTagPrefix = "v4-hotspot-target-zoom")
+                        canvasTag = "v4-image-canvas-zoom-$imageId", targetTagPrefix = "v4-hotspot-target-zoom",
+                        drawOverlays = drawOverlays, hitTestOverlays = hitTestOverlays)
                 }
             }
         }
@@ -461,6 +589,8 @@ private fun V4HotspotCanvas(
     canvasTag: String,
     targetTagPrefix: String,
     onBlankTap: (() -> Unit)? = null,
+    drawOverlays: Boolean = true,
+    hitTestOverlays: Boolean = true,
 ) {
     var scale by remember(image, zoomable) { mutableFloatStateOf(1f) }
     var pan by remember(image, zoomable) { mutableStateOf(Offset.Zero) }
@@ -490,7 +620,8 @@ private fun V4HotspotCanvas(
         }
         Box(Modifier.fillMaxSize().testTag(canvasTag)
             .then(if (zoomable) Modifier.transformable(transformState) else Modifier)
-            .pointerInput(overlays, scale, pan, interactive, fittedWidthPx, fittedHeightPx) {
+            .pointerInput(overlays, scale, pan, interactive, fittedWidthPx, fittedHeightPx,
+                drawOverlays, hitTestOverlays) {
                 detectTapGestures { point ->
                     if (fittedWidthPx <= 0f || fittedHeightPx <= 0f) return@detectTapGestures
                     val centerX = size.width / 2f
@@ -503,7 +634,7 @@ private fun V4HotspotCanvas(
                     val sourceX = imageX / fittedWidthPx * widthPx
                     val sourceY = imageY / fittedHeightPx * heightPx
                     val minTouchPx = with(density) { 48.dp.toPx() } / scale
-                    val target = overlays.mapNotNull { overlay ->
+                    val target = if (hitTestOverlays) overlays.mapNotNull { overlay ->
                         val rect = overlay.v4Object("rectPx")
                         val x = rect.v4Int("x").toFloat(); val y = rect.v4Int("y").toFloat()
                         val w = rect.v4Int("width").toFloat(); val h = rect.v4Int("height").toFloat()
@@ -517,9 +648,9 @@ private fun V4HotspotCanvas(
                             val distance = hypot((sourceX - x - w / 2f) * sx, (sourceY - y - h / 2f) * sy)
                             overlay to distance
                         }
-                    }.minByOrNull { it.second }?.first
+                    }.minByOrNull { it.second }?.first else null
                     val slotId = target?.get("slotId")?.jsonPrimitive?.content
-                    if (interactive && slotId != null) {
+                    if (hitTestOverlays && interactive && slotId != null) {
                         context.onOpenSlot(slotId)
                     } else {
                         onBlankTap?.invoke()
@@ -529,7 +660,7 @@ private fun V4HotspotCanvas(
             Box(Modifier.width(fittedWidth).height(fittedHeight)
                 .graphicsLayer(scaleX = scale, scaleY = scale, translationX = pan.x, translationY = pan.y)) {
                 Image(image.asImageBitmap(), "题目图片", Modifier.fillMaxSize())
-                overlays.forEach { overlay ->
+                if (drawOverlays) overlays.forEach { overlay ->
                     val slotId = overlay.v4String("slotId")
                     val slot = context.slots[slotId] ?: return@forEach
                     val question = context.questionById[slot.v4String("questionId")] ?: return@forEach
