@@ -15,5 +15,6 @@ docs/checkpoints/evidence/*.log whitespace=-blank-at-eol
 gradlew text eol=lf
 gradlew.bat text eol=crlf
 *.jar binary
+private-data/layout-v4-android-test-packs/*.eelpack filter=lfs diff=lfs merge=lfs -text
 *.py text eol=lf
 *.ps1 text eol=lf

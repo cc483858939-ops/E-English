@@ -10,8 +10,12 @@ local.properties
 *.keystore
 captures/
 artifacts/
-# Copyrighted source and generated exam resources stay local.
-private-data/
+# Copyrighted sources and generated exam resources stay local except approved V4 Android test packs.
+private-data/*
+!private-data/layout-v4-android-test-packs/
+private-data/layout-v4-android-test-packs/*
+!private-data/layout-v4-android-test-packs/*.eelpack
+!private-data/layout-v4-android-test-packs/pack-validation.json
 sample-data/
 app/src/main/assets/listening/
 app/src/androidTest/assets/private-library/
