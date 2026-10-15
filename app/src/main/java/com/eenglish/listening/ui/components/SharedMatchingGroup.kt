@@ -29,6 +29,7 @@ fun SharedMatchingGroupView(
     onActivate: (Int) -> Unit = {},
     onSelect: (String, String) -> Unit,
 ) {
+    val matchingSheetHeight = rememberMatchingSheetHeight(group.questions.map { it.id })
     val first = group.questions.first()
     val promptDocuments = remember(group.questions, group.prompt) {
         group.questions.map { question ->
@@ -173,6 +174,7 @@ fun SharedMatchingGroupView(
                 editable = editable && !submitted,
                 onSelect = { optionId -> onSelect(question.id, optionId) },
                 onDismiss = { openQuestionId = null },
+                heightState = matchingSheetHeight,
             )
         }
     }

@@ -232,7 +232,7 @@ class MatchingInlineUiTest {
     }
 
     private fun selectOption(number: Int, optionId: String) {
-        compose.onNodeWithTag("matching-option-$number-$optionId").performClick()
+        compose.onNodeWithTag("matching-option-$number-$optionId").performScrollTo().assertIsDisplayed().performClick()
         waitForPickerDismissed(number)
         val questionId = qid(number)
         val selected = requireNotNull(pendingSelections.remove(questionId)) {

@@ -177,6 +177,7 @@ fun LayoutV4GroupView(
         }
     }
     val pools = remember(group) { group.v4Array("optionPools").map { it.jsonObject }.associateBy { it.v4String("poolId") } }
+    val matchingSheetHeight = rememberMatchingSheetHeight(groupId)
     var activeSlotId by remember(groupId) { mutableStateOf<String?>(null) }
     var activeImageFillQuestionId by remember(groupId) { mutableStateOf<String?>(null) }
     val focusManager = LocalFocusManager.current
@@ -256,8 +257,8 @@ fun LayoutV4GroupView(
                     val allowed = pool?.v4Array("optionIds")?.map { it.jsonPrimitive.content }.orEmpty()
                     val options = question.options.filter { it.id in allowed }
                     MatchingOptionSheet(question, options, answers[question.id].orEmpty(), !saving,
-                        onSelect = { option -> onSelect(question.id, option); activeSlotId = null },
-                        onDismiss = { activeSlotId = null })
+                        onSelect = { option -> onSelect(question.id, option) },
+                        onDismiss = { activeSlotId = null }, heightState = matchingSheetHeight)
                 }
             }
         }
@@ -690,6 +691,7 @@ private fun V4SharedTextMatchingGroup(
     val options = remember(questionIds, optionIds, context.questionById) {
         optionsFor(questionIds, optionIds, context.questionById)
     }
+    val matchingSheetHeight = rememberMatchingSheetHeight(groupId)
     var activeQuestionId by remember(groupId) { mutableStateOf<String?>(null) }
 
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -763,7 +765,8 @@ private fun V4SharedTextMatchingGroup(
     val activeQuestion = activeQuestionId?.let(context.questionById::get)
     if (activeQuestion != null && context.editable && !context.submitted) {
         MatchingOptionSheet(activeQuestion, options, context.answers[activeQuestion.id].orEmpty(), !context.saving,
-            onSelect = { context.onSelect(activeQuestion.id, it) }, onDismiss = { activeQuestionId = null })
+            onSelect = { context.onSelect(activeQuestion.id, it) }, onDismiss = { activeQuestionId = null },
+            heightState = matchingSheetHeight)
     }
 }
 
