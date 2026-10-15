@@ -29,7 +29,7 @@ import com.eenglish.listening.domain.model.*
 import com.eenglish.listening.ui.components.LayoutV4GroupView
 import com.eenglish.listening.ui.components.LocalQuestionImages
 import com.eenglish.listening.ui.components.usesImageFillAnswerList
-import com.eenglish.listening.ui.components.usesC11ReportResponsibilitiesPilot
+import com.eenglish.listening.ui.components.usesSharedTextMatchingLayout
 import com.eenglish.listening.ui.screens.PracticeScreen
 import com.eenglish.listening.ui.screens.TranscriptScreen
 import com.eenglish.listening.ui.theme.ListeningTheme
@@ -145,7 +145,7 @@ class LayoutV4RealPackUiTest {
 
             fun assertReportResponsibilitiesRows(part: ListeningPart, group: JsonObject) {
                 val groupId = group.getValue("groupId").jsonPrimitive.content
-                assertTrue(usesC11ReportResponsibilitiesPilot(groupId))
+                assertTrue(usesSharedTextMatchingLayout(group))
                 val questionIds = group.getValue("questionIds").jsonArray.map { it.jsonPrimitive.content }
                 assertEquals((27..30).map { question(part, it).id }, questionIds)
                 val instructions = group.getValue("instructions").jsonArray.map { it.jsonObject }
@@ -295,6 +295,18 @@ class LayoutV4RealPackUiTest {
                 compose.onNodeWithTag(tag).assertExists()
             }
 
+            fun openPracticeImageCard(group: JsonObject) {
+                scrollPracticeToGroup(group)
+                val imageId = imageBlock(group).getValue("id").jsonPrimitive.content
+                compose.onNodeWithTag("v4-image-canvas-$imageId").performScrollTo()
+                    .performTouchInput { click(center) }
+                compose.onNodeWithTag("v4-image-answer-card").assertExists()
+            }
+
+            fun advanceImageCard(count: Int) {
+                repeat(count) { compose.onNodeWithTag("v4-image-card-next").performClick() }
+            }
+
             fun screenBounds(tag: String, scrollTo: Boolean = true): androidx.compose.ui.geometry.Rect {
                 val node = compose.onNodeWithTag(tag)
                 if (scrollTo) node.performScrollTo()
@@ -330,45 +342,6 @@ class LayoutV4RealPackUiTest {
                 assertTrue("Touch up rejected: $evidence", injectTouch(MotionEvent.ACTION_UP, x, y, downTime, SystemClock.uptimeMillis()))
             }
 
-            fun physicallyTapImageHotspotAndVerifyPlainZoom(part: ListeningPart, group: JsonObject,
-                questionNumber: Int, transform: Boolean = false) {
-                val q = question(part, questionNumber)
-                val image = imageBlock(group)
-                val slot = group.getValue("slots").jsonArray.map { it.jsonObject }.single {
-                    it.getValue("questionId").jsonPrimitive.content == q.id &&
-                        it.getValue("slotIndex").jsonPrimitive.int == 0
-                }
-                val overlay = image.getValue("overlays").jsonArray.map { it.jsonObject }.single {
-                    it.getValue("slotId").jsonPrimitive.content == slot.getValue("slotId").jsonPrimitive.content
-                }
-                val rect = overlay.getValue("rectPx").jsonObject
-                val imageId = image.getValue("id").jsonPrimitive.content
-                val canvasTag = "v4-image-canvas-$imageId"
-                val bounds = screenBounds(canvasTag)
-                val sourceX = rect.getValue("x").jsonPrimitive.int + rect.getValue("width").jsonPrimitive.int / 2f
-                val sourceY = rect.getValue("y").jsonPrimitive.int + rect.getValue("height").jsonPrimitive.int / 2f
-                val x = (bounds.left + bounds.width * sourceX / image.getValue("widthPx").jsonPrimitive.int).toInt()
-                val y = (bounds.top + bounds.height * sourceY / image.getValue("heightPx").jsonPrimitive.int).toInt()
-                physicalTapAt(x, y, "${group.getValue("groupId").jsonPrimitive.content} Q$questionNumber image-only hotspot tap")
-                val zoomTag = "v4-image-canvas-zoom-$imageId"
-                compose.waitUntil(10_000) {
-                    compose.onAllNodesWithTag(zoomTag).fetchSemanticsNodes().isNotEmpty()
-                }
-                compose.onNodeWithTag("v4-hotspot-input-$questionNumber-1").assertDoesNotExist()
-                compose.onNodeWithTag("v4-hotspot-target-zoom-$questionNumber-1").assertDoesNotExist()
-                if (transform) {
-                    compose.onNodeWithTag(zoomTag).performTouchInput {
-                        val c = center
-                        pinch(start0 = Offset(c.x - 28f, c.y), end0 = Offset(c.x - 90f, c.y),
-                            start1 = Offset(c.x + 28f, c.y), end1 = Offset(c.x + 90f, c.y))
-                        swipe(start = Offset(c.x - 100f, c.y), end = Offset(c.x + 100f, c.y), durationMillis = 450)
-                    }
-                    compose.waitForIdle()
-                }
-                compose.onNodeWithText("关闭 · 双指缩放与平移").performClick()
-                compose.onAllNodesWithTag(zoomTag).assertCountEquals(0)
-            }
-
             fun saveDeviceScreenshot(name: String) {
                 val bitmap = requireNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
                 val output = File(requireNotNull(targetContext.getExternalFilesDir(null)), "layout-v4-pilot/$name.png")
@@ -389,21 +362,7 @@ class LayoutV4RealPackUiTest {
                 println("PILOT_SCREENSHOT_SHARED $sharedPath")
             }
 
-            fun tapHotspot(number: Int, slotIndex: Int = 1) {
-                val tag = "v4-hotspot-target-$number-$slotIndex"
-                compose.waitUntil(10_000) { compose.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty() }
-                compose.onNodeWithTag(tag).performScrollTo().performClick()
-            }
-
-            fun selectFromPicker(number: Int, optionId: String) {
-                compose.waitUntil(10_000) {
-                    compose.onAllNodesWithTag("matching-option-sheet-title-$number").fetchSemanticsNodes().isNotEmpty()
-                }
-                compose.onNodeWithTag("matching-option-$number-$optionId").performClick()
-                compose.waitForIdle()
-            }
-
-            // C5 T1 P2: retain its printed form rows while moving all inputs below the clean image.
+            // C5 T1 P2: the printed table stays clean and tapping it opens the group answer card.
             run {
                 val (part, layout, group) = load("cambridge-5-test-1-part-2", 11)
                 val image = imageBlock(group)
@@ -416,8 +375,8 @@ class LayoutV4RealPackUiTest {
                 compose.onNodeWithTag("practice-submit").assertExists()
                 compose.onNodeWithTag(groupTag).assertExists()
                 compose.onNodeWithTag(groupTag).performScrollTo()
-                assertImageFillRows(part, group)
-                compose.onNodeWithText("点击图片放大").assertExists()
+                compose.onNodeWithTag("v4-image-list-input-11").assertDoesNotExist()
+                compose.onNodeWithText("点击图片打开答题卡").assertExists()
                 val formRows = group.getValue("blocks").jsonArray.map { it.jsonObject }
                     .filter { it["type"]?.jsonPrimitive?.content == "formRow" }
                 assertEquals(9, formRows.size)
@@ -429,13 +388,15 @@ class LayoutV4RealPackUiTest {
                         }
                     }
                 }
-                physicallyTapImageHotspotAndVerifyPlainZoom(part, group, questionNumber = 11, transform = true)
+                openPracticeImageCard(group)
+                compose.onNodeWithTag("v4-image-card-position").assertTextEquals("1/9")
 
                 val q11 = question(part, 11)
-                compose.onNodeWithTag("v4-image-list-input-11").performScrollTo().performClick()
+                compose.onNodeWithTag("v4-image-card-input-11").performClick()
                     .performTextInput("form-row-answer")
-                compose.onNodeWithTag("v4-image-list-input-11").performImeAction()
+                compose.onNodeWithTag("v4-image-card-input-11").performImeAction()
                 compose.runOnIdle { assertEquals("form-row-answer", state.value.answers[q11.id]) }
+                compose.onNodeWithTag("v4-image-card-close").performClick()
 
                 // The transcript route's complete reading/player/panel page uses the same real Part and V4 group.
                 compose.activity.runOnUiThread {
@@ -469,26 +430,26 @@ class LayoutV4RealPackUiTest {
             run {
                 val (part, layout, group) = load("cambridge-6-test-1-part-1", 5)
                 val state = showPracticePage(part, layout)
-                scrollPracticeToGroup(group)
-                assertImageFillRows(part, group)
+                openPracticeImageCard(group)
 
                 val q5 = question(part, 5)
-                val q5Tag = "v4-image-list-input-5"
-                compose.onNodeWithTag(q5Tag).performScrollTo().performClick().performTextInput("ordinary-answer")
+                val q5Tag = "v4-image-card-input-5"
+                compose.onNodeWithTag(q5Tag).performClick().performTextInput("ordinary-answer")
                 compose.onNodeWithTag(q5Tag).performImeAction()
                 compose.runOnIdle { assertEquals("ordinary-answer", state.value.answers[q5.id]) }
 
                 val q7 = question(part, 7)
+                advanceImageCard(2)
                 val groupQuestions = group.getValue("questionIds").jsonArray.map { id ->
                     part.questions.single { it.id == id.jsonPrimitive.content }
                 }
-                val firstTag = "v4-image-list-input-7-slot1"
-                val secondTag = "v4-image-list-input-7-slot2"
+                val firstTag = "v4-image-card-input-7-1"
+                val secondTag = "v4-image-card-input-7-2"
                 val response = group.getValue("responses").jsonArray.map { it.jsonObject }.single {
                     it.getValue("questionIds").jsonArray.any { id -> id.jsonPrimitive.content == q7.id }
                 }
                 val joiner = q7.answerSeparator ?: response.getValue("joiner").jsonPrimitive.content
-                compose.onNodeWithTag(firstTag).performScrollTo().performClick().performTextInput("left-answer")
+                compose.onNodeWithTag(firstTag).performClick().performTextInput("left-answer")
                 compose.onNodeWithTag(firstTag).performImeAction()
                 compose.onNodeWithTag(secondTag).assertIsFocused()
                 compose.runOnIdle {
@@ -502,7 +463,7 @@ class LayoutV4RealPackUiTest {
                     assertEquals(2, LayoutV4AnswerStatus.missingCount(groupQuestions, layout, state.value.answers))
                     assertEquals(4, Grader.grade(groupQuestions, state.value.answers).totalCount)
                 }
-                compose.onNodeWithTag(secondTag).performScrollTo().performTextClearance()
+                compose.onNodeWithTag(secondTag).performTextClearance()
                 compose.onNodeWithTag(secondTag).performImeAction()
                 compose.runOnIdle {
                     assertEquals(3, LayoutV4AnswerStatus.missingCount(groupQuestions, layout, state.value.answers))
@@ -510,12 +471,12 @@ class LayoutV4RealPackUiTest {
                 }
             }
 
-            // C16 T2 P3: the flow remains intact above the question-numbered fill list.
+            // C16 T2 P3: the printed flow remains visible when its answer card opens.
             run {
                 val (part, layout, group) = load("cambridge-16-test-2-part-3", 25)
                 val state = showPracticePage(part, layout)
                 scrollPracticeToGroup(group)
-                assertImageFillRows(part, group)
+                compose.onNodeWithTag("v4-image-card-input-25").assertDoesNotExist()
                 val flows = mutableListOf<JsonObject>()
                 collectBlocks(group, "flow", flows)
                 assertEquals(1, flows.size)
@@ -527,10 +488,10 @@ class LayoutV4RealPackUiTest {
                     compose.onNodeWithTag("v4-text-${text.getValue("id").jsonPrimitive.content}").assertExists()
                 }
 
-                physicallyTapImageHotspotAndVerifyPlainZoom(part, group, questionNumber = 25)
+                openPracticeImageCard(group)
                 val q25 = question(part, 25)
-                val q25Tag = "v4-image-list-input-25"
-                compose.onNodeWithTag(q25Tag).performScrollTo().performClick().performTextInput("flow-answer")
+                val q25Tag = "v4-image-card-input-25"
+                compose.onNodeWithTag(q25Tag).performClick().performTextInput("flow-answer")
                 compose.onNodeWithTag(q25Tag).performImeAction()
                 compose.runOnIdle { assertEquals("flow-answer", state.value.answers[q25.id]) }
             }
@@ -561,22 +522,16 @@ class LayoutV4RealPackUiTest {
                 val groupTag = "layout-v4-group-$groupId"
                 var state = showPracticePage(part, layout)
                 compose.onNodeWithTag(groupTag).performScrollTo().assertExists()
-                assertImageFillRows(part, group)
-                compose.onNodeWithText("点击图片放大").assertExists()
-                (21..26).forEach { number ->
-                    compose.onAllNodesWithTag("v4-image-list-row-$number").assertCountEquals(1)
-                    compose.onAllNodesWithTag("v4-image-list-input-$number").assertCountEquals(1)
-                    compose.onNodeWithTag("v4-hotspot-target-$number-1").assertDoesNotExist()
-                }
-                compose.onNodeWithTag("v4-hotspot-input-21-1").assertDoesNotExist()
                 val canvasTag = "v4-image-canvas-${image.getValue("id").jsonPrimitive.content}"
                 compose.onAllNodesWithTag(canvasTag).assertCountEquals(1)
                 compose.onAllNodesWithContentDescription("题目图片").assertCountEquals(1)
-                compose.onNodeWithTag("v4-image-list-input-21").assertIsDisplayed()
+                compose.onNodeWithTag("v4-image-card-input-21").assertDoesNotExist()
+                (21..26).forEach { number ->
+                    compose.onNodeWithTag("v4-hotspot-target-$number-1").assertDoesNotExist()
+                }
                 saveDeviceScreenshot("c11-t3-p3-practice-idle")
 
-                // Tap the actual Q21 rectangle in screen coordinates. It must open the plain
-                // image viewer, not route to the legacy hotspot answer dialog.
+                // A physical touch on the original image opens the group card, not a one-slot dialog.
                 val q21 = question(part, 21)
                 val q21Overlay = image.getValue("overlays").jsonArray.map { it.jsonObject }.single { overlay ->
                     overlay.getValue("slotId").jsonPrimitive.content == "slot-q21-0"
@@ -588,11 +543,17 @@ class LayoutV4RealPackUiTest {
                 val tapX = (canvas.left + canvas.width * srcX / image.getValue("widthPx").jsonPrimitive.int).toInt()
                 val tapY = (canvas.top + canvas.height * srcY / image.getValue("heightPx").jsonPrimitive.int).toInt()
                 physicalTapAt(tapX, tapY, "C11 Q21 source hotspot rectangle $rect canvas=$canvas")
+                compose.onNodeWithTag("v4-image-answer-card").assertExists()
+                compose.onNodeWithTag("v4-image-card-position").assertTextEquals("1/6")
+                compose.onNodeWithTag("v4-hotspot-input-21-1").assertDoesNotExist()
+
+                // Zoom is a separate action and still supports pinch and pan.
+                compose.onNodeWithTag("v4-image-zoom-${image.getValue("id").jsonPrimitive.content}")
+                    .performScrollTo().performClick()
                 val zoomCanvasTag = "v4-image-canvas-zoom-${image.getValue("id").jsonPrimitive.content}"
                 compose.waitUntil(10_000) {
                     compose.onAllNodesWithTag(zoomCanvasTag).fetchSemanticsNodes().isNotEmpty()
                 }
-                compose.onNodeWithTag("v4-hotspot-input-21-1").assertDoesNotExist()
                 (21..26).forEach { number -> compose.onNodeWithTag("v4-hotspot-target-zoom-$number-1").assertDoesNotExist() }
                 compose.onAllNodesWithTag(canvasTag).assertCountEquals(1)
                 compose.onAllNodesWithTag(zoomCanvasTag).assertCountEquals(1)
@@ -608,14 +569,14 @@ class LayoutV4RealPackUiTest {
                 compose.onAllNodesWithTag(zoomCanvasTag).assertCountEquals(0)
                 compose.onAllNodesWithTag(canvasTag).assertCountEquals(1)
 
-                val q21Tag = "v4-image-list-input-21"
-                val q22Tag = "v4-image-list-input-22"
-                compose.onNodeWithTag(q21Tag).performScrollTo().performClick().performTextInput("pilot21")
-                compose.onNodeWithTag(q21Tag).performImeAction()
-                compose.onNodeWithTag(q22Tag).assertIsFocused().assertIsDisplayed()
+                val q21Tag = "v4-image-card-input-21"
+                val q22Tag = "v4-image-card-input-22"
+                compose.onNodeWithTag(q21Tag).performClick().performTextInput("pilot21")
+                compose.onNodeWithTag("v4-image-card-next").performClick()
+                compose.onNodeWithTag(q22Tag).assertIsDisplayed()
                 compose.onNodeWithTag(q22Tag).performTextInput("pilot22")
                 compose.waitForIdle()
-                compose.onNodeWithTag(q22Tag).assertTextEquals("pilot22")
+                compose.onNodeWithTag(q22Tag).assertTextContains("pilot22", substring = true)
                 saveDeviceScreenshot("c11-t3-p3-practice-typing-q22")
                 // The existing page action flushes inline drafts before navigation.
                 compose.onNodeWithText("查看原文").performClick()
@@ -628,9 +589,12 @@ class LayoutV4RealPackUiTest {
                 compose.activity.runOnUiThread { compose.activity.setContent { Text("pilot-route-away") } }
                 compose.waitForIdle()
                 state = showPracticePage(part, layout, state.value)
-                compose.onNodeWithTag(q21Tag).performScrollTo().assertTextEquals("pilot21")
-                compose.onNodeWithTag(q22Tag).performScrollTo().assertTextEquals("pilot22")
+                openPracticeImageCard(group)
+                compose.onNodeWithTag(q21Tag).assertTextContains("pilot21", substring = true)
+                compose.onNodeWithTag("v4-image-card-next").performClick()
+                compose.onNodeWithTag(q22Tag).assertTextContains("pilot22", substring = true)
 
+                compose.onNodeWithTag("v4-image-card-previous").performClick()
                 compose.onNodeWithTag(q21Tag).performClick().performTextClearance()
                 compose.onNodeWithTag(q21Tag).performImeAction()
                 compose.runOnIdle {
@@ -661,7 +625,7 @@ class LayoutV4RealPackUiTest {
                 compose.waitForIdle()
                 compose.onNodeWithTag("transcript-header").assertExists()
                 compose.onNodeWithTag(groupTag).assertExists()
-                compose.onNodeWithTag(q22Tag).performScrollTo().assertTextEquals("pilot22")
+                compose.onNodeWithTag("v4-image-list-input-22").performScrollTo().assertTextEquals("pilot22")
                 compose.onNodeWithTag("v4-image-list-input-23").performScrollTo().performClick()
                     .performTextInput("transcript-edit")
                 compose.runOnIdle { assertEquals("transcript-edit", state.value.inlineDrafts[question(part, 23).id]) }
@@ -685,11 +649,14 @@ class LayoutV4RealPackUiTest {
                 compose.waitForIdle()
                 compose.onNodeWithTag("grade-summary").assertTextContains(
                     "正确 ${grade.correctCount} / ${grade.totalCount}", substring = true)
-                compose.onNodeWithTag(q22Tag).performScrollTo().assertIsNotEnabled().assertTextEquals("pilot22")
+                openPracticeImageCard(group)
+                compose.onNodeWithTag("v4-image-card-next").performClick()
+                compose.onNodeWithTag(q22Tag).assertIsNotEnabled()
+                    .assertTextContains("pilot22", substring = true)
             }
 
-            // C11 T3 P3 Q27-Q30: this exact matching group uses one shared option list and
-            // four equal-width letter rows. Repeated letters are allowed by its V4 response.
+            // C11 T3 P3 Q27-Q30: text matching uses one shared option list and
+            // four equal-width letter rows. Repeated letters remain selectable.
             run {
                 val (part, layout, group) = load("cambridge-11-test-3-part-3", 27)
                 val groupId = group.getValue("groupId").jsonPrimitive.content
@@ -810,9 +777,9 @@ class LayoutV4RealPackUiTest {
                 compose.onNodeWithTag("v4-list-marker-b-g1-q3-row").assertTextEquals("•")
             }
 
-            // C12 T2 P3: image single-choice options come from the Part and obey the declared pool.
+            // C12 T2 P3: image single-choice uses the same bottom card and full-width options.
             run {
-                val (part, _, group) = load("cambridge-12-test-2-part-3", 26)
+                val (part, layout, group) = load("cambridge-12-test-2-part-3", 26)
                 val response = group.getValue("responses").jsonArray.map { it.jsonObject }.single {
                     it.getValue("questionIds").jsonArray.any { id -> id.jsonPrimitive.content == question(part, 26).id }
                 }
@@ -820,45 +787,41 @@ class LayoutV4RealPackUiTest {
                 val pool = group.getValue("optionPools").jsonArray.map { it.jsonObject }
                     .single { it.getValue("poolId").jsonPrimitive.content == response.getValue("optionPoolId").jsonPrimitive.content }
                 val optionId = pool.getValue("optionIds").jsonArray.first().jsonPrimitive.content
-                val answers = render(part, group)
-                tapHotspot(26)
-                selectFromPicker(26, optionId)
-                compose.runOnIdle { assertEquals(optionId, answers.value[question(part, 26).id]) }
+                val state = showPracticePage(part, layout)
+                openPracticeImageCard(group)
+                saveDeviceScreenshot("c12-image-choice-card")
+                compose.onNodeWithTag("v4-image-card-option-26-$optionId").performClick()
+                compose.runOnIdle { assertEquals(optionId, state.value.answers[question(part, 26).id]) }
             }
 
-            // C9 T4 P2: matching remains a shared option pool, with each image slot opening its own picker.
+            // C9 T4 P2: both picture questions may choose the same letter in the bottom card.
             run {
-                val (part, _, group) = load("cambridge-9-test-4-part-2", 11)
+                val (part, layout, group) = load("cambridge-9-test-4-part-2", 11)
                 val response = group.getValue("responses").jsonArray.map { it.jsonObject }.single {
                     it.getValue("kind").jsonPrimitive.content == "matching"
                 }
                 val pool = group.getValue("optionPools").jsonArray.map { it.jsonObject }
                     .single { it.getValue("poolId").jsonPrimitive.content == response.getValue("optionPoolId").jsonPrimitive.content }
                 val optionId = pool.getValue("optionIds").jsonArray.first().jsonPrimitive.content
-                val answers = render(part, group)
-                tapHotspot(11)
-                selectFromPicker(11, optionId)
-                compose.runOnIdle { assertEquals(optionId, answers.value[question(part, 11).id]) }
-                val otherOption = pool.getValue("optionIds").jsonArray[1].jsonPrimitive.content
+                val state = showPracticePage(part, layout)
+                openPracticeImageCard(group)
+                saveDeviceScreenshot("c9-image-matching-card")
+                compose.onNodeWithTag("v4-image-card-option-11-$optionId").performClick()
+                compose.runOnIdle { assertEquals(optionId, state.value.answers[question(part, 11).id]) }
                 val replacementOption = pool.getValue("optionIds").jsonArray[2].jsonPrimitive.content
-
-                // Reusing A from Q11 must be blocked in Q12's hotspot picker, while Q12 can
-                // choose another option and Q11 can still change its answer.
-                tapHotspot(12)
-                compose.onNodeWithTag("matching-option-12-$optionId").assertIsNotEnabled()
-                selectFromPicker(12, otherOption)
-                tapHotspot(11)
-                selectFromPicker(11, replacementOption)
-                tapHotspot(12)
-                compose.onNodeWithTag("matching-option-12-$optionId").assertIsEnabled()
-                selectFromPicker(12, optionId)
+                advanceImageCard(1)
+                compose.onNodeWithTag("v4-image-card-option-12-$optionId").assertIsEnabled().performClick()
+                compose.onNodeWithTag("v4-image-card-previous").performClick()
                 compose.runOnIdle {
-                    assertEquals(replacementOption, answers.value[question(part, 11).id])
-                    assertEquals(optionId, answers.value[question(part, 12).id])
+                    assertEquals(optionId, state.value.answers[question(part, 11).id])
+                    assertEquals(optionId, state.value.answers[question(part, 12).id])
                 }
+                compose.onNodeWithTag("v4-image-card-option-11-$replacementOption")
+                    .performScrollTo().performClick()
+                compose.runOnIdle { assertEquals(replacementOption, state.value.answers[question(part, 11).id]) }
             }
 
-            // C9 T4 P2 Q14-Q18 uses inline choice lists; it enforces the same forbidden reuse rule.
+            // C9 T4 P2 Q14-Q18 stays inline, and a repeated letter remains selectable.
             run {
                 val (part, _, group) = load("cambridge-9-test-4-part-2", 14)
                 val groupId = group.getValue("groupId").jsonPrimitive.content
@@ -875,7 +838,8 @@ class LayoutV4RealPackUiTest {
 
                 compose.onNodeWithTag(choiceTag(14, optionId)).performScrollTo().performClick()
                 compose.runOnIdle { assertEquals(optionId, answers.value[question(part, 14).id]) }
-                compose.onNodeWithTag(choiceTag(15, optionId)).performScrollTo().assertIsNotEnabled()
+                compose.onNodeWithTag(choiceTag(15, optionId)).performScrollTo().assertIsEnabled().performClick()
+                compose.runOnIdle { assertEquals(optionId, answers.value[question(part, 15).id]) }
                 compose.onNodeWithTag(choiceTag(15, otherOption)).performScrollTo().assertIsEnabled().performClick()
                 compose.runOnIdle { assertEquals(otherOption, answers.value[question(part, 15).id]) }
                 compose.onNodeWithTag(choiceTag(14, replacementOption)).performScrollTo().assertIsEnabled().performClick()
@@ -887,18 +851,23 @@ class LayoutV4RealPackUiTest {
                 }
             }
 
-            // C11 T1 P2: map remains a side reference and declares no image hotspots.
+            // C11 T1 P2: the map has no hotspots and opens the same answer card.
             run {
-                val (part, _, group) = load("cambridge-11-test-1-part-2", 15)
+                val (part, layout, group) = load("cambridge-11-test-1-part-2", 15)
                 val image = group.getValue("blocks").jsonArray.map { it.jsonObject }
                     .single { it["type"]?.jsonPrimitive?.content == "image" }
                 assertTrue(image.getValue("overlays").jsonArray.isEmpty())
-                render(part, group)
+                val state = showPracticePage(part, layout)
+                scrollPracticeToGroup(group)
                 compose.waitUntil(10_000) {
                     compose.onAllNodesWithContentDescription("题目图片").fetchSemanticsNodes().isNotEmpty()
                 }
                 compose.onNodeWithContentDescription("题目图片").assertExists()
                 compose.onAllNodesWithTag("v4-hotspot-target-15-1").assertCountEquals(0)
+                openPracticeImageCard(group)
+                compose.onNodeWithTag("v4-image-card-caption").assertTextContains("Scarecrow", substring = true)
+                compose.onNodeWithTag("v4-image-card-option-15-A").performClick()
+                compose.runOnIdle { assertEquals("A", state.value.answers[question(part, 15).id]) }
             }
 
             // C9 T2 P2: the reviewed no-separator pair stays one saved answer and is incomplete after one slot.
@@ -931,6 +900,35 @@ class LayoutV4RealPackUiTest {
                     assertTrue(Grader.withinLimit(q, saved))
                     assertTrue(q.acceptableAnswers.any { Grader.normalize(it) == Grader.normalize(saved) })
                 }
+            }
+
+            // A larger text-matching pool must stay full width and open one picker per question.
+            run {
+                val (part, _, group) = load("cambridge-10-test-2-part-2", 15)
+                assertTrue(usesSharedTextMatchingLayout(group))
+                val groupId = group.getValue("groupId").jsonPrimitive.content
+                val response = group.getValue("responses").jsonArray.single().jsonObject
+                val pool = group.getValue("optionPools").jsonArray.map { it.jsonObject }.single {
+                    it.getValue("poolId").jsonPrimitive.content == response.getValue("optionPoolId").jsonPrimitive.content
+                }
+                val optionIds = pool.getValue("optionIds").jsonArray.map { it.jsonPrimitive.content }
+                assertEquals(9, optionIds.size)
+                val answers = render(part, group)
+                optionIds.forEach { id ->
+                    compose.onAllNodesWithTag("v4-letter-match-option-$groupId-$id").assertCountEquals(1)
+                }
+                val first = question(part, 15)
+                val second = question(part, 16)
+                compose.onNodeWithTag("v4-letter-match-picker-15").performScrollTo().performClick()
+                compose.onNodeWithTag("matching-option-15-A").performClick()
+                compose.waitForIdle()
+                compose.onNodeWithTag("v4-letter-match-picker-16").performScrollTo().performClick()
+                compose.onNodeWithTag("matching-option-16-A").performClick()
+                compose.runOnIdle {
+                    assertEquals("A", answers.value[first.id])
+                    assertEquals("A", answers.value[second.id])
+                }
+                compose.onNodeWithTag("v4-letter-match-picker-16").assertTextContains("A", substring = true)
             }
 
             // Ordinary shared multiple-choice selection still uses the canonical sorted group encoding.

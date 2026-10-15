@@ -74,6 +74,71 @@ class ShellNavigationTest {
         assertFalse(compose.activity.isFinishing)
     }
 
+    @Test fun bothPagesKeepScrollPositionsAcrossBackAndRecreation() {
+        openPractice()
+        compose.onNodeWithTag("practice-list").performScrollToNode(hasTestTag("question-28"))
+        compose.waitForIdle()
+        val practicePosition = practiceOffset()
+        assertTrue("Practice must be scrolled before navigating", practicePosition > 0f)
+        openTranscript()
+        jumpInTranscript(28)
+        dragPanelTo(0.30f)
+        compose.onNodeWithTag("transcript-body").performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, 240f) }
+        compose.onNodeWithTag("transcript-question-body").performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, 100f) }
+        compose.waitForIdle()
+        val readingPosition = transcriptOffset()
+        val cardPosition = questionOffset()
+        val ratio = panelRatio()
+        assertTrue("Transcript must be scrolled before navigating", readingPosition > 0f)
+        assertTrue("Question card must be scrolled before navigating", cardPosition > 0f)
+        repeat(2) { cycle ->
+            if (cycle == 0) pressBack()
+            else compose.onNodeWithText("返回答题页").performClick()
+            compose.waitForIdle()
+            assertEquals(practicePosition, practiceOffset(), 0.01f)
+            openTranscript()
+            compose.waitForIdle()
+            assertEquals(readingPosition, transcriptOffset(), 1f)
+            assertEquals(cardPosition, questionOffset(), 1f)
+            assertEquals(ratio, panelRatio(), 0.01f)
+            // The selected question must be restored along with the card's scroll offset.
+            compose.onNodeWithTag("transcript-question-summary").assertTextContains("28", substring = true)
+        }
+        compose.activityRule.scenario.recreate()
+        compose.waitForIdle()
+        assertEquals(readingPosition, transcriptOffset(), 1f)
+        assertEquals(cardPosition, questionOffset(), 1f)
+        pressBack()
+        compose.waitForIdle()
+        assertEquals(practicePosition, practiceOffset(), 0.01f)
+    }
+
+    @Test fun newAttemptStartsWithFreshPagePositions() {
+        openPractice()
+        compose.onNodeWithTag("practice-list").performScrollToNode(hasTestTag("question-28"))
+        openTranscript()
+        jumpInTranscript(28)
+        compose.onNodeWithTag("transcript-body").performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, 240f) }
+        compose.waitForIdle()
+        assertTrue(transcriptOffset() > 0f)
+        pressBack()
+        val oldSession = vm.uiState.value.attempt!!.session.id
+        compose.runOnIdle { vm.confirmSubmit() }
+        compose.waitUntil(10000) { vm.uiState.value.submitted && !vm.uiState.value.saving }
+        compose.runOnIdle { vm.newPractice() }
+        compose.waitUntil(10000) { vm.uiState.value.attempt?.session?.id != oldSession && !vm.uiState.value.loading }
+        compose.waitForIdle()
+        assertEquals(0f, practiceOffset(), 0f)
+        openTranscript()
+        compose.waitForIdle()
+        assertEquals(0f, transcriptOffset(), 0f)
+        assertEquals(0f, questionOffset(), 0f)
+        compose.onNodeWithTag("transcript-question-summary").assertTextContains("21", substring = true)
+    }
+
+    private fun practiceOffset(): Float = compose.onNodeWithTag("practice-list")
+        .fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value()
+
     @Test fun activityRecreationRestoresDestinationAndTranscriptMode() {
         openPractice()
         select(21, "A")

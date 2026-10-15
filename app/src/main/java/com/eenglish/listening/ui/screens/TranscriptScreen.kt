@@ -1,11 +1,13 @@
 package com.eenglish.listening.ui.screens
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
@@ -32,7 +34,10 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
     mode: TranscriptMode, onModeChange: (TranscriptMode) -> Unit, onBack: () -> Unit,
     onSelect: (String, String) -> Unit, onSeekBy: (Long) -> Unit = {}, onSpeed: (Float) -> Unit = {},
     onInlineEdit: (String, String) -> Unit = onSelect, onInlineCommit: (String) -> Unit = {},
-    onFlushInline: () -> Unit = {}) {
+    onFlushInline: () -> Unit = {},
+    pageState: TranscriptPageState = key(state.attempt?.session?.id, state.part?.id) {
+        rememberTranscriptPageState(state.questions.firstOrNull()?.number ?: 0)
+    }) {
     if (state.loading) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         return
@@ -41,14 +46,11 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
     val displayItems = remember(questions, state.questionLayout) {
         QuestionLayoutDisplayParser.parse(questions, state.questionLayout?.groups.orEmpty())
     }
-    val sessionId = state.attempt?.session?.id
-    var questionNumber by rememberSaveable(sessionId, state.part?.id) {
-        mutableIntStateOf(questions.firstOrNull()?.number ?: 0)
-    }
-    var expanded by rememberSaveable(sessionId, state.part?.id) { mutableStateOf(true) }
-    var panelRatio by rememberSaveable(sessionId, state.part?.id) { mutableFloatStateOf(0.45f) }
-    var lastExpandedRatio by rememberSaveable(sessionId, state.part?.id) { mutableFloatStateOf(0.45f) }
-    var showJump by rememberSaveable(sessionId, state.part?.id) { mutableStateOf(false) }
+    var questionNumber by pageState.questionNumber
+    var expanded by pageState.expanded
+    var panelRatio by pageState.panelRatio
+    var lastExpandedRatio by pageState.lastExpandedRatio
+    var showJump by remember { mutableStateOf(false) }
     val index = questions.indexOfFirst { it.number == questionNumber }.coerceAtLeast(0)
     val question = questions.getOrNull(index)
     val activeV4Group = remember(state.questionLayoutV4, question?.id) {
@@ -73,8 +75,19 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
         .firstOrNull { item -> item.group.questions.any { it.id == question?.id } }?.group
     val activeTextFallback = displayItems.asSequence().filterIsInstance<QuestionDisplayItem.SharedTextFallback>()
         .firstOrNull { item -> item.group.questions.any { it.id == question?.id } }?.group
-    val transcriptScroll = rememberScrollState()
-    val questionScroll = rememberScrollState()
+    val transcriptScroll = pageState.transcriptScroll
+    val questionGroupKey = activeV4Group?.get("groupId")?.jsonPrimitive?.content
+        ?: activeGroup?.questions?.first()?.id ?: activeStructured?.group?.groupId
+        ?: activeImageGroup?.questions?.first()?.id ?: activeMatching?.questions?.first()?.id
+        ?: activeMultipleChoice?.groupId ?: activeTextFallback?.questions?.first()?.id ?: question?.id
+    val questionScroll = pageState.questionScroll
+    LaunchedEffect(questionGroupKey) {
+        // Reset only when the selected group changes, not when the route is reopened.
+        if (pageState.questionGroupKey != questionGroupKey) {
+            questionScroll.scrollTo(0)
+            pageState.questionGroupKey = questionGroupKey
+        }
+    }
     var readingOffsetToRestore by remember { mutableStateOf<Int?>(null) }
     var questionOffsetToRestore by remember { mutableStateOf<Int?>(null) }
     var resizeReadingAnchor by remember { mutableStateOf<Int?>(null) }
@@ -82,11 +95,6 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
     var restoreRequest by remember { mutableIntStateOf(0) }
     var cardHeaderHeightPx by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
-    LaunchedEffect(activeV4Group?.get("groupId")?.jsonPrimitive?.content ?: activeGroup?.questions?.first()?.id ?: activeStructured?.group?.groupId ?:
-        activeImageGroup?.questions?.first()?.id ?: activeMatching?.questions?.first()?.id ?:
-        activeMultipleChoice?.groupId ?: activeTextFallback?.questions?.first()?.id ?: question?.id) {
-        questionScroll.scrollTo(0)
-    }
     LaunchedEffect(restoreRequest) {
         // Only restore after a resize gesture or toggle, never on every drag frame/recomposition.
         if (readingOffsetToRestore == null && questionOffsetToRestore == null) return@LaunchedEffect
@@ -260,3 +268,34 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
         }
     }
 }
+
+/** Saved by the listening shell so popping the transcript does not discard reading state. */
+class TranscriptPageState(firstQuestionNumber: Int, readingOffset: Int = 0, questionOffset: Int = 0) {
+    val questionNumber = mutableIntStateOf(firstQuestionNumber)
+    val expanded = mutableStateOf(true)
+    val panelRatio = mutableFloatStateOf(0.45f)
+    val lastExpandedRatio = mutableFloatStateOf(0.45f)
+    val transcriptScroll = ScrollState(readingOffset)
+    val questionScroll = ScrollState(questionOffset)
+    var questionGroupKey: String? = null
+
+    companion object {
+        val Saver = listSaver<TranscriptPageState, Any?>(
+            save = { listOf(it.questionNumber.intValue, it.expanded.value,
+                it.panelRatio.floatValue, it.lastExpandedRatio.floatValue,
+                it.transcriptScroll.value, it.questionScroll.value, it.questionGroupKey) },
+            restore = { values ->
+                TranscriptPageState(values[0] as Int, values[4] as Int, values[5] as Int).apply {
+                    expanded.value = values[1] as Boolean
+                    panelRatio.floatValue = values[2] as Float
+                    lastExpandedRatio.floatValue = values[3] as Float
+                    questionGroupKey = values[6] as String?
+                }
+            },
+        )
+    }
+}
+
+@Composable
+fun rememberTranscriptPageState(firstQuestionNumber: Int): TranscriptPageState =
+    rememberSaveable(saver = TranscriptPageState.Saver) { TranscriptPageState(firstQuestionNumber) }

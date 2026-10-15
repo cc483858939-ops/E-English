@@ -7,6 +7,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.test.espresso.Espresso
 import com.eenglish.listening.audio.AudioState
 import com.eenglish.listening.domain.model.*
 import com.eenglish.listening.ui.components.LocalAnswerSession
@@ -93,7 +94,7 @@ class LayoutV4ScreenUiTest {
         return Fixture(part, layout, attempt)
     }
 
-    @Test fun practiceV4ImageFillListEditsSavesAndShowsReadOnlySubmittedResult() {
+    @Test fun practiceV4ImageCardEditsSavesAndShowsReadOnlySubmittedResult() {
         val f = fixture()
         val state = mutableStateOf(PracticeUiState(loading = false, part = f.part,
             questionLayoutV4 = f.layout, attempt = f.attempt,
@@ -123,23 +124,32 @@ class LayoutV4ScreenUiTest {
         }
         compose.waitForIdle()
         compose.onNodeWithTag("layout-v4-group-${f.part.id}-layout-q11-q19").assertExists()
-        compose.onAllNodesWithTag("v4-image-list-input-11").assertCountEquals(1)
+        compose.onNodeWithTag("v4-image-answer-card").assertDoesNotExist()
         compose.onNodeWithTag("v4-input-11-1").assertDoesNotExist()
         compose.onNodeWithTag("v4-hotspot-target-11-1").assertDoesNotExist()
-        compose.onNodeWithTag("v4-image-list-input-11").performClick().performTextInput("answer11")
-        compose.onNodeWithTag("v4-image-list-input-12").performClick()
+        compose.onNodeWithTag("v4-image-canvas-image-diagram").performTouchInput { click(center) }
+        compose.onNodeWithTag("v4-image-answer-card").assertExists()
+        compose.onNodeWithTag("v4-image-card-position").assertTextEquals("1/9")
+        compose.onNodeWithTag("v4-image-card-input-11").performClick().performTextInput("answer11")
+        compose.onNodeWithTag("v4-image-card-next").performClick()
         compose.runOnIdle {
             assertEquals("answer11", state.value.answers[f.part.questions.first().id])
-            assertTrue("Changing question must commit the image-list draft", commits >= 1)
+            assertTrue("Changing question must commit the image-card draft", commits >= 1)
         }
-        compose.onNodeWithTag("v4-image-list-input-19").performScrollTo().performClick().performImeAction()
+        compose.onNodeWithTag("v4-image-card-position").assertTextEquals("2/9")
+        compose.onNodeWithTag("v4-image-card-close").performClick()
         compose.onNodeWithTag("practice-submit").performClick()
         compose.onNodeWithTag("grade-summary").assertExists()
         val resultText = compose.onNodeWithTag("v4-result-11").fetchSemanticsNode()
             .config[SemanticsProperties.Text].joinToString(" ") { it.text }
         assertTrue("Submitted V4 fill result must include its answer and correctness: $resultText",
             resultText.contains("answer11") && resultText.contains("正确"))
-        compose.onNodeWithTag("v4-image-list-input-11").assertIsNotEnabled().assertTextEquals("answer11")
+        compose.onNodeWithTag("v4-image-canvas-image-diagram").performTouchInput { click(center) }
+        compose.onNodeWithTag("v4-image-card-input-11").assertIsNotEnabled()
+            .assertTextContains("answer11", substring = true)
+        Espresso.pressBack()
+        compose.onNodeWithTag("v4-image-answer-card").assertDoesNotExist()
+        compose.onNodeWithTag("practice-header").assertExists()
     }
 
     @Test fun transcriptPanelUsesTheV4GroupAndFlushesDraftBeforeQuestionNavigation() {

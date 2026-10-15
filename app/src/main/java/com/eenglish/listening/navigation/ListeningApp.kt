@@ -24,6 +24,9 @@ import com.eenglish.listening.ui.screens.TranscriptScreen
 import com.eenglish.listening.viewmodel.ShellViewModel
 import com.eenglish.listening.viewmodel.PracticeViewModel
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.key
+import androidx.compose.foundation.lazy.rememberLazyListState
+import com.eenglish.listening.ui.screens.rememberTranscriptPageState
 import androidx.compose.ui.platform.LocalContext
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.BackHandler
@@ -67,6 +70,13 @@ fun ListeningApp(shellViewModel: ShellViewModel = viewModel(), practiceViewModel
     val state by shellViewModel.uiState.collectAsStateWithLifecycle()
     val practice by practiceViewModel.uiState.collectAsStateWithLifecycle()
     val audio by practiceViewModel.audio.state.collectAsStateWithLifecycle()
+    // Page state outlives individual navigation entries, including a popped transcript.
+    val practiceListState = key(practice.part?.id, practice.attempt?.session?.id, practice.submitted) {
+        rememberLazyListState()
+    }
+    val transcriptPageState = key(practice.part?.id, practice.attempt?.session?.id) {
+        rememberTranscriptPageState(practice.questions.firstOrNull()?.number ?: 0)
+    }
     val application = LocalContext.current.applicationContext as ListeningApplication
     val imageLoader: suspend (String) -> android.graphics.Bitmap? = remember(application, practice.part?.id) {
         { path -> practice.part?.id?.let { id ->
@@ -99,6 +109,7 @@ fun ListeningApp(shellViewModel: ShellViewModel = viewModel(), practiceViewModel
             BackHandler(enabled = currentRoute == AppDestination.PRACTICE.route && !imeVisible, onBack = navigateUp)
             PracticeScreen(
                 state = practice,
+                listState = practiceListState,
                 audio = audio,
                 onToggle = practiceViewModel.audio::toggle,
                 onSeek = practiceViewModel.audio::seekTo,
@@ -123,6 +134,7 @@ fun ListeningApp(shellViewModel: ShellViewModel = viewModel(), practiceViewModel
             BackHandler(enabled = currentRoute == AppDestination.TRANSCRIPT.route && !imeVisible, onBack = navigateUp)
             TranscriptScreen(
                 state = practice,
+                pageState = transcriptPageState,
                 audio = audio,
                 onToggle = practiceViewModel.audio::toggle,
                 onSeek = practiceViewModel.audio::seekTo,
