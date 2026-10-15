@@ -26,6 +26,8 @@ import com.eenglish.listening.ui.components.usesSharedTextMatchingLayout
 import com.eenglish.listening.ui.theme.ListeningTheme
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -132,17 +134,38 @@ class LayoutV4TextGroupUiTest {
             assertTrue("Inline fill input must remain on screen", input.left >= 0f && input.right <= width)
             assertTrue("Inline fill input should leave room for surrounding words", input.width < width * 0.34f)
             capture("compact-text-fill")
+            fun objects(element: JsonElement): List<JsonObject> = when (element) {
+                is JsonObject -> listOf(element) + element.values.flatMap(::objects)
+                is JsonArray -> element.flatMap(::objects)
+                else -> emptyList()
+            }
             for (number in 3..5) {
                 val slotId = "slot-q$number-0"
                 compose.onNodeWithTag("v4-input-$number-1").performScrollTo()
-                val lead = compose.onNodeWithTag("v4-inline-fill-lead-$slotId")
-                    .fetchSemanticsNode().boundsInRoot
                 val blank = compose.onNodeWithTag("v4-input-$number-1")
                     .fetchSemanticsNode().boundsInRoot
-                assertTrue("Q$number must keep the preceding word beside its blank",
-                    lead.right <= blank.left && abs(lead.center.y - blank.center.y) < blank.height / 2f)
-                if (number == 4) assertTrue("Q4 should keep more than one word before the blank",
-                    lead.left > 24f)
+                val run = objects(fillGroup).first { block ->
+                    (block["children"] as? JsonArray)?.any { it.jsonObject["slotId"]?.jsonPrimitive?.content == slotId } == true
+                }
+                val firstId = run.getValue("children").jsonArray.first().jsonObject.getValue("id").jsonPrimitive.content
+                compose.runOnIdle {
+                    val text = nativeText(compose.activity, "v4-inline-text-$firstId")
+                    val anchor = text.text.indexOf('\uFFFC')
+                    val prefix = text.text.substring(0, anchor).trimEnd()
+                    val word = prefix.indexOfLast { it.isWhitespace() } + 1
+                    val line = text.layout.getLineForOffset(anchor)
+                    assertEquals("Q$number must keep the preceding word beside its blank",
+                        text.layout.getLineForOffset(word), line)
+                    val location = IntArray(2).also(text::getLocationInWindow)
+                    val wordRight = location[0] + text.totalPaddingLeft + text.layout.getPrimaryHorizontal(prefix.length)
+                    val centerY = location[1] + text.totalPaddingTop + text.layout.getLineBaseline(line) +
+                        (text.paint.fontMetrics.ascent + text.paint.fontMetrics.descent) / 2f
+                    assertTrue("Q$number editor must remain aligned with its native text: " +
+                        "wordRight=$wordRight editorLeft=${blank.left} textCenter=$centerY editorCenter=${blank.center.y}",
+                        wordRight <= blank.left + 2f && abs(centerY - blank.center.y) <= 3f * compose.density.density)
+                    if (number == 4) assertTrue("Q4 should keep surrounding words before the blank",
+                        location[0] + text.totalPaddingLeft + text.layout.getPrimaryHorizontal(word) > 24f)
+                }
             }
             capture("compact-text-fill-joined")
             compose.onNodeWithTag("v4-input-3-1").performScrollTo().performTextInput("trial")

@@ -69,7 +69,8 @@ fun AnnotatableText(document: AnnotationDocument, modifier: Modifier = Modifier,
     inlineGaps: List<InlineAnswerGap> = emptyList(), otherDocuments: List<AnnotationDocument> = emptyList(),
     activeDocument: AnnotationDocument? = null, onGapClick: ((Int) -> Unit)? = null,
     matchingProjection: MatchingInlineProjection? = null,
-    sourceDocuments: List<AnnotationDocument> = emptyList()) {
+    sourceDocuments: List<AnnotationDocument> = emptyList(),
+    projection: AnnotationProjection? = null, fillWidth: Boolean = true) {
     val annotations = LocalAnnotations.current
     val annotationDocuments = sourceDocuments.ifEmpty { listOf(document) + otherDocuments }
     require(matchingProjection == null || annotationDocuments.all { it.text == matchingProjection.source }) {
@@ -79,13 +80,15 @@ fun AnnotatableText(document: AnnotationDocument, modifier: Modifier = Modifier,
     val textSize = with(density) { style.fontSize.toPx() }
     val lineHeight = with(density) { style.lineHeight.toPx() }.toInt()
     val ranges = annotations.partId?.let { partId ->
-        val sourceRanges = annotationDocuments.flatMap { it.visibleRanges(partId, annotations.highlights) }
-        matchingProjection?.displayRanges(sourceRanges) ?: sourceRanges
+        projection?.visibleRanges(partId, annotations.highlights) ?: run {
+            val sourceRanges = annotationDocuments.flatMap { it.visibleRanges(partId, annotations.highlights) }
+            matchingProjection?.displayRanges(sourceRanges) ?: sourceRanges
+        }
     }.orEmpty()
     val backgroundColor = MaterialTheme.colorScheme.primaryContainer.toArgb()
     val foregroundColor = MaterialTheme.colorScheme.onPrimaryContainer.toArgb()
     val outlineColor = MaterialTheme.colorScheme.primary.toArgb()
-    AndroidView(modifier = modifier.fillMaxWidth().semantics {
+    AndroidView(modifier = (if (fillWidth) modifier.fillMaxWidth() else modifier).semantics {
         this.text = AnnotatedString(document.text)
         if (inlineGaps.isNotEmpty() && onGapClick != null) customActions = inlineGaps.map { gap ->
             CustomAccessibilityAction(gap.accessibilityLabel) { onGapClick.invoke(gap.number); true }
@@ -104,6 +107,10 @@ fun AnnotatableText(document: AnnotationDocument, modifier: Modifier = Modifier,
                 annotations.partId?.let { partId ->
                     // On removal, include every original question key: old highlights may have
                     // been saved under any member before this display-layer grouping existed.
+                    if (projection != null) {
+                        annotations.onChange(projection.selection(partId, start, end, add), add)
+                        return@let
+                    }
                     val documents = if (add) listOf(activeDocument ?: document) else annotationDocuments
                     val changes = matchingProjection?.let { projection ->
                         projection.sourceRanges(start, end).flatMap { sourceRange ->
@@ -128,7 +135,7 @@ fun AnnotatableText(document: AnnotationDocument, modifier: Modifier = Modifier,
 private class PermanentBackground : BackgroundColorSpan(0xFFFFE29A.toInt())
 private class PermanentForeground : ForegroundColorSpan(0xFF29230E.toInt())
 
-class SelectableAnnotationTextView(context: Context) : TextView(context) {
+open class SelectableAnnotationTextView(context: Context) : TextView(context) {
     var canAnnotate = false
     var onMark: (Int, Int, Boolean) -> Unit = { _, _, _ -> }
     var onTap: (() -> Unit)? = null

@@ -17,10 +17,8 @@ import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -45,10 +43,6 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.Placeholder
-import androidx.compose.ui.text.PlaceholderVerticalAlign
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -56,6 +50,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.eenglish.listening.domain.annotation.AnnotationProjection
+import com.eenglish.listening.domain.layout.V4AnnotationSources
 import com.eenglish.listening.domain.grading.Grader
 import com.eenglish.listening.domain.model.Option
 import com.eenglish.listening.domain.model.Question
@@ -217,8 +213,9 @@ fun LayoutV4GroupView(
                             optionIds, questionById)
                         Text("可选项", style = MaterialTheme.typography.labelLarge)
                         options.forEach { option ->
-                            Text(optionLabel(option), style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.testTag("v4-matching-option-${groupId}-${option.id}"))
+                            V4SelectableText(V4AnnotationSources.option(option,
+                                response.v4Array("questionIds").mapNotNull { questionById[it.jsonPrimitive.content] }, optionLabel(option)),
+                                "v4-matching-option-${groupId}-${option.id}", style = MaterialTheme.typography.bodyMedium)
                         }
                     }
             }
@@ -294,17 +291,19 @@ private data class V4RenderContext(
 private fun V4BlockView(block: JsonObject, context: V4RenderContext, depth: Int, numberedOrdinal: Int? = null) {
     if (depth > 8) return
     when (block.v4String("type")) {
-        "text" -> Text(block.v4String("text"),
+        "text" -> V4SelectableText(blockProjection(block, context), "v4-text-${block.v4String("id")}",
             style = if (context.inlineTextFill) MaterialTheme.typography.bodyLarge.copy(
-                fontSize = 18.sp, lineHeight = 28.sp) else MaterialTheme.typography.bodyLarge,
-            modifier = Modifier.testTag("v4-text-${block.v4String("id")}"))
+                fontSize = 18.sp, lineHeight = 28.sp) else MaterialTheme.typography.bodyLarge)
         "slot" -> if (!context.imageFillAnswerList && !context.imageAnswerCardOverview) {
             context.slots[block.v4String("slotId")]?.let { V4SlotControl(it, context) }
         }
         "choiceList" -> if (!context.imageAnswerCardOverview) V4ChoiceList(block, context)
         "image" -> V4ImageBlock(block, context)
         "paragraph" -> FlowRowLayout(block.v4Array("children"), context, depth + 1)
-        "formRow" -> FlowRow(Modifier.fillMaxWidth().testTag("v4-form-row-${block.v4String("id")}"),
+        "formRow" -> if (context.inlineTextFill && block.v4Array("children").all {
+            it.jsonObject.v4String("type") in setOf("text", "slot")
+        }) FlowRowLayout(block.v4Array("children"), context, depth + 1,
+            Modifier.fillMaxWidth().testTag("v4-form-row-${block.v4String("id")}")) else FlowRow(Modifier.fillMaxWidth().testTag("v4-form-row-${block.v4String("id")}"),
             verticalArrangement = Arrangement.spacedBy(4.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             block.v4Array("children").forEachIndexed { index, child ->
@@ -315,9 +314,9 @@ private fun V4BlockView(block: JsonObject, context: V4RenderContext, depth: Int,
         "listItem" -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             val marker = v4ListMarkerLabel(block.v4String("marker"), hasExplicitNumberPrefix(block), numberedOrdinal)
             if (marker.isNotEmpty()) {
-                Text(marker, modifier = Modifier.testTag("v4-list-marker-${block.v4String("id")}"))
+                Text(marker, modifier = Modifier.alignByBaseline().testTag("v4-list-marker-${block.v4String("id")}"))
             }
-            FlowRowLayout(block.v4Array("children"), context, depth + 1, Modifier.weight(1f))
+            FlowRowLayout(block.v4Array("children"), context, depth + 1, Modifier.weight(1f).alignByBaseline())
         }
         "table" -> V4Table(block, context, depth + 1)
         "flow" -> V4Flow(block, context, depth + 1)
@@ -364,39 +363,15 @@ private fun FlowRowLayout(
 ) {
     val blocks = children.map { it.jsonObject }
     val slotCount = blocks.count { it.v4String("type") == "slot" }
-    if (context.inlineTextFill && slotCount == 1 &&
-        blocks.all { it.v4String("type") in setOf("text", "slot") } &&
-        blocks.indices.any { index -> blocks[index].v4String("type") == "text" &&
-            blocks[index].v4String("text").length >= 20 && blocks.getOrNull(index + 1)?.v4String("type") == "slot" }) {
+    if (context.inlineTextFill && slotCount > 0 &&
+        blocks.all { it.v4String("type") in setOf("text", "slot") }) {
         InlineFillTextLayout(blocks, context, depth, modifier)
         return
     }
     FlowRow(modifier, horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalArrangement = Arrangement.spacedBy(if (context.inlineTextFill) 8.dp else 4.dp)) {
-        var index = 0
-        while (index < children.size) {
-            val child = children[index].jsonObject
-            val next = children.getOrNull(index + 1) as? JsonObject
-            val keepWithSlot = if (context.inlineTextFill && slotCount == 1 && child.v4String("type") == "text" &&
-                next?.v4String("type") == "slot") splitInlineFillLead(child.v4String("text")) else null
-            if (keepWithSlot != null && next != null) {
-                val slot = context.slots[next.v4String("slotId")]
-                if (slot?.v4String("kind") == "fill") {
-                    val style = MaterialTheme.typography.bodyLarge.copy(fontSize = 18.sp, lineHeight = 28.sp)
-                    Text(keepWithSlot.first, style = style,
-                        modifier = Modifier.testTag("v4-text-${child.v4String("id")}"))
-                    Row(verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(keepWithSlot.second, style = style,
-                            modifier = Modifier.testTag("v4-inline-fill-lead-${next.v4String("slotId")}"))
-                        V4BlockView(next, context, depth)
-                    }
-                    index += 2
-                    continue
-                }
-            }
-            V4BlockView(child, context, depth, numberedOrdinalAt(children, index))
-            index++
+        children.forEachIndexed { index, child ->
+            V4BlockView(child.jsonObject, context, depth, numberedOrdinalAt(children, index))
         }
     }
 }
@@ -405,67 +380,30 @@ private fun FlowRowLayout(
 private fun InlineFillTextLayout(
     blocks: List<JsonObject>, context: V4RenderContext, depth: Int, modifier: Modifier,
 ) {
-    val style = MaterialTheme.typography.bodyLarge.copy(fontSize = 18.sp, lineHeight = 28.sp)
-    val density = LocalDensity.current
-    val measurer = rememberTextMeasurer()
-    val leads = buildMap {
-        blocks.forEachIndexed { index, block ->
-            if (block.v4String("type") == "text" && blocks.getOrNull(index + 1)?.v4String("type") == "slot") {
-                splitInlineFillLead(block.v4String("text"))?.let { split ->
-                    put(blocks[index + 1].v4String("slotId"), split.second)
-                }
-            }
-        }
+    val parts = blocks.map { block ->
+        if (block.v4String("type") == "text") blockProjection(block, context)
+        else AnnotationProjection("\uFFFC", emptyList())
     }
-    val text = buildAnnotatedString {
-        var hasContent = false
-        blocks.forEachIndexed { index, block ->
-            if (hasContent) append(" ")
-            if (block.v4String("type") == "slot") {
-                appendInlineContent(block.v4String("slotId"), "[answer]")
-            } else {
-                val nextSlotId = blocks.getOrNull(index + 1)?.takeIf { it.v4String("type") == "slot" }
-                    ?.v4String("slotId")
-                val value = if (nextSlotId in leads) {
-                    splitInlineFillLead(block.v4String("text"))!!.first
-                } else block.v4String("text")
-                append(value)
-            }
-            hasContent = true
+    // Keep the last word beside its editor, as in the original V4 inline layout.
+    val projection = AnnotationProjection.join(parts.flatMapIndexed { index, part ->
+        if (index == 0) listOf(part) else listOf(
+            AnnotationProjection(if (blocks[index].v4String("type") == "slot") "\u00a0" else " ", emptyList()), part)
+    }, "")
+    var offset = 0
+    val slots = mutableListOf<V4InlineSlot>()
+    blocks.forEachIndexed { index, block ->
+        if (block.v4String("type") == "slot") {
+            val slotId = block.v4String("slotId")
+            slots += V4InlineSlot(offset, slotId) { V4BlockView(block, context, depth) }
         }
+        offset += parts[index].text.length + 1
     }
-    val inlineContent = blocks.filter { it.v4String("type") == "slot" }.associate { slot ->
-        val slotId = slot.v4String("slotId")
-        val lead = leads[slotId].orEmpty()
-        val leadWidth = if (lead.isEmpty()) 0.dp else with(density) {
-            measurer.measure(lead, style).size.width.toDp()
-        }
-        val placeholderWidth = 112.dp + if (lead.isEmpty()) 0.dp else leadWidth + 6.dp
-        slotId to InlineTextContent(Placeholder(
-            width = with(density) { placeholderWidth.toSp() },
-            height = with(density) { 48.dp.toSp() },
-            placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter,
-        )) {
-            Row(verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (lead.isNotEmpty()) Text(lead, style = style,
-                    modifier = Modifier.testTag("v4-inline-fill-lead-$slotId"))
-                V4BlockView(slot, context, depth)
-            }
-        }
-    }
-    Text(text, inlineContent = inlineContent, style = style, modifier = modifier)
+    V4SelectableRun(projection, slots, "v4-inline-text-${blocks.first().v4String("id")}", modifier,
+        MaterialTheme.typography.bodyLarge.copy(fontSize = 18.sp, lineHeight = 28.sp))
 }
 
-/** Keep the final word with its following blank when a line wraps on a phone. */
-internal fun splitInlineFillLead(text: String): Pair<String, String>? {
-    val trimmed = text.trimEnd()
-    val boundary = trimmed.indexOfLast(Char::isWhitespace)
-    if (boundary <= 0) return null
-    val before = trimmed.substring(0, boundary).trimEnd()
-    val lead = trimmed.substring(boundary + 1)
-    return if (before.isNotBlank() && lead.isNotBlank() && lead.length <= 16) before to lead else null
-}
+private fun blockProjection(block: JsonObject, context: V4RenderContext): AnnotationProjection =
+    V4AnnotationSources.block(context.group.v4String("groupId"), block, context.questionById)
 
 @Composable
 private fun V4Table(block: JsonObject, context: V4RenderContext, depth: Int) {
@@ -767,9 +705,9 @@ private fun V4SharedTextMatchingGroup(
                     Text(option.id, style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.primary, modifier = Modifier.width(28.dp)
                             .testTag("v4-letter-match-option-label-$groupId-${option.id}"))
-                    Text(option.text.ifBlank { option.id }, style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.weight(1f)
-                            .testTag("v4-letter-match-option-text-$groupId-${option.id}"))
+                    V4SelectableText(V4AnnotationSources.option(option,
+                        questionIds.mapNotNull(context.questionById::get), option.text.ifBlank { option.id }),
+                        "v4-letter-match-option-text-$groupId-${option.id}", Modifier.weight(1f))
                 }
             }
         }
@@ -856,7 +794,12 @@ private fun V4ChoiceList(block: JsonObject, context: V4RenderContext) {
                         context.onSelect(first.id, next.sorted().joinToString(","))
                     }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked, onCheckedChange = null, enabled = canChoose)
-                    Text(optionLabel(option), Modifier.weight(1f))
+                    V4SelectableText(V4AnnotationSources.option(option, groupQuestions, optionLabel(option)),
+                        "v4-choice-text-${context.group.v4String("groupId")}-${option.id}", Modifier.weight(1f),
+                        onTap = if (canChoose) ({
+                            val next = if (checked) selected - option.id else selected + option.id
+                            context.onSelect(first.id, next.sorted().joinToString(","))
+                        }) else null)
                 }
             }
         }
@@ -885,7 +828,13 @@ private fun V4ChoiceList(block: JsonObject, context: V4RenderContext) {
                         .testTag("v4-matching-choice-${context.group.v4String("groupId")}-${question.number}-${option.id}")
                         .padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(selected, onClick = null, enabled = enabled)
-                        Text(optionLabel(option), Modifier.weight(1f))
+                        V4SelectableText(V4AnnotationSources.option(option,
+                            if (response.v4String("kind") == "matching") qIds.mapNotNull(context.questionById::get)
+                            else listOf(question), optionLabel(option)),
+                            "v4-choice-text-${context.group.v4String("groupId")}-${question.number}-${option.id}",
+                            Modifier.weight(1f), onTap = if (enabled) ({
+                                context.onActivate(question.number); context.onSelect(question.id, option.id)
+                            }) else null)
                     }
                 }
             }
@@ -1124,7 +1073,11 @@ private fun V4FillDialog(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(draft, ::update, modifier = Modifier.fillMaxWidth().testTag("v4-hotspot-input-${question.number}-${slotIndex + 1}"),
                     label = { Text("输入答案") }, singleLine = true, keyboardOptions = KeyboardOptions.Default)
-                Text(question.instructions.ifBlank { "按题目要求填写" }, style = MaterialTheme.typography.bodySmall)
+                if (question.instructions.isNotBlank()) AnnotatableText(
+                    com.eenglish.listening.domain.annotation.AnnotationDocument.single(question.instructions,
+                        "question", "${question.id}/instructions", "und"),
+                    style = MaterialTheme.typography.bodySmall, viewTag = "v4-fill-instructions-${question.number}")
+                else Text("按题目要求填写", style = MaterialTheme.typography.bodySmall)
             }
         },
         confirmButton = { TextButton(onClick = { onCommit(questionId); onDismiss() }) { Text("完成") } },
@@ -1227,11 +1180,13 @@ fun LayoutV4ImageAnswerCard(
                 Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    if (caption.isNotBlank()) Text(caption, style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.testTag("v4-image-card-caption"))
-                    if (question.instructions.isNotBlank()) Text(question.instructions,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (caption.isNotBlank()) V4SelectableText(imageCaptionProjection(group, question.id, question.number, questions.associateBy { it.id }),
+                        "v4-image-card-caption", style = MaterialTheme.typography.titleMedium)
+                    if (question.instructions.isNotBlank()) AnnotatableText(
+                        com.eenglish.listening.domain.annotation.AnnotationDocument.single(question.instructions,
+                            "question", "${question.id}/instructions", "und"),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        viewTag = "v4-image-card-instructions-${question.number}")
                     when (response.v4String("kind")) {
                         "fill" -> {
                             val parts = splitForLayout(question, response, answers[question.id].orEmpty())
@@ -1297,8 +1252,10 @@ fun LayoutV4ImageAnswerCard(
                                     .padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                     RadioButton(selected = selected, onClick = null, enabled = enabled)
-                                    Text(optionLabel(option), style = MaterialTheme.typography.bodyLarge,
-                                        modifier = Modifier.weight(1f))
+                                    V4SelectableText(V4AnnotationSources.option(option,
+                                        if (response.v4String("kind") == "matching") questions else listOf(question), optionLabel(option)),
+                                        "v4-image-card-option-text-${question.number}-${option.id}", Modifier.weight(1f),
+                                        onTap = if (enabled) ({ onSelect(question.id, option.id) }) else null)
                                 }
                             }
                         }
@@ -1329,10 +1286,14 @@ fun LayoutV4ImageAnswerCard(
 }
 
 /** Pull the row or flow-node label for the current slot without repeating the entire question bank. */
-internal fun imageQuestionCaption(group: JsonObject, questionId: String, number: Int): String {
+internal fun imageQuestionCaption(group: JsonObject, questionId: String, number: Int): String =
+    imageCaptionProjection(group, questionId, number, emptyMap()).text
+
+private fun imageCaptionProjection(group: JsonObject, questionId: String, number: Int,
+    questions: Map<String, Question>): AnnotationProjection {
     val targets = group.v4Array("slots").map { it.jsonObject }
         .filter { it.v4String("questionId") == questionId }.map { it.v4String("slotId") }.toSet()
-    if (targets.isEmpty()) return ""
+    if (targets.isEmpty()) return AnnotationProjection("", emptyList())
     fun containsSlot(element: JsonElement): Boolean = when (element) {
         is JsonObject -> (element["slotId"]?.jsonPrimitive?.contentOrNull in targets) ||
             (element["slotIds"] as? JsonArray)?.any { it.jsonPrimitive.content in targets } == true ||
@@ -1340,14 +1301,14 @@ internal fun imageQuestionCaption(group: JsonObject, questionId: String, number:
         is JsonArray -> element.any(::containsSlot)
         else -> false
     }
-    fun texts(element: JsonElement): List<String> = when (element) {
+    fun texts(element: JsonElement): List<AnnotationProjection> = when (element) {
         is JsonObject -> if (element["type"]?.jsonPrimitive?.contentOrNull == "text") {
-            listOfNotNull(element["text"]?.jsonPrimitive?.contentOrNull)
+            listOf(V4AnnotationSources.block(group.v4String("groupId"), element, questions))
         } else element.values.flatMap(::texts)
         is JsonArray -> element.flatMap(::texts)
         else -> emptyList()
     }
-    val captions = mutableListOf<String>()
+    val captions = mutableListOf<AnnotationProjection>()
     fun visit(element: JsonElement) {
         when (element) {
             is JsonObject -> {
@@ -1356,8 +1317,12 @@ internal fun imageQuestionCaption(group: JsonObject, questionId: String, number:
                 val isLabelContainer = type in setOf("formRow", "paragraph", "listItem") ||
                     type == null && element["children"] is JsonArray
                 if (isLabelContainer && containsSlot(element)) {
-                    val label = texts(element).joinToString(" ").trim()
-                    if (label.isNotBlank() && label != number.toString()) captions += label
+                    val joined = AnnotationProjection.join(texts(element))
+                    val label = joined.text.trim()
+                    if (label.isNotBlank() && label != number.toString()) {
+                        val start = joined.text.length - joined.text.trimStart().length
+                        captions += joined.slice(start, start + label.length)
+                    }
                     return
                 }
                 element.values.forEach(::visit)
@@ -1367,7 +1332,7 @@ internal fun imageQuestionCaption(group: JsonObject, questionId: String, number:
         }
     }
     group.v4Array("blocks").forEach(::visit)
-    return captions.distinct().joinToString(" · ")
+    return AnnotationProjection.join(captions.distinctBy { it.text }, " · ")
 }
 
 private fun JsonObject.v4String(name: String): String = this[name]?.jsonPrimitive?.content
