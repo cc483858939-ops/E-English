@@ -155,6 +155,7 @@ fun LayoutV4GroupView(
     imageAnswerCardOverview: Boolean = false,
     imageAnswerCardActive: Boolean = false,
     onImageTap: () -> Unit = {},
+    imageAnswerCardCompact: Boolean = false,
 ) {
     val groupId = group.v4String("groupId")
     val imageFillAnswerList = remember(group) { usesImageFillAnswerList(group) }
@@ -182,10 +183,10 @@ fun LayoutV4GroupView(
     var activeImageFillQuestionId by remember(groupId) { mutableStateOf<String?>(null) }
     val focusManager = LocalFocusManager.current
     val context = remember(group, questions, answers, editable, submitted, saving, slots, responses, pools,
-        imageFillAnswerList, inlineTextFill, activeImageFillQuestionId, imageAnswerCardOverview, imageAnswerCardActive, onImageTap) {
+        imageFillAnswerList, inlineTextFill, activeImageFillQuestionId, imageAnswerCardOverview, imageAnswerCardActive, onImageTap, imageAnswerCardCompact) {
         V4RenderContext(group, questionById, slots, responses, pools, answers, editable, submitted,
             saving, onSelect, onEdit, onCommit, onActivate, { slotId -> activeSlotId = slotId },
-            imageFillAnswerList, inlineTextFill, imageAnswerCardOverview, imageAnswerCardActive, onImageTap, {
+            imageFillAnswerList, inlineTextFill, imageAnswerCardOverview, imageAnswerCardActive, imageAnswerCardCompact, onImageTap, {
                 val focusedQuestionId = activeImageFillQuestionId
                 focusManager.clearFocus(force = true)
                 if (focusedQuestionId != null) onCommit(focusedQuestionId)
@@ -284,6 +285,7 @@ private data class V4RenderContext(
     val inlineTextFill: Boolean,
     val imageAnswerCardOverview: Boolean,
     val imageAnswerCardActive: Boolean,
+    val imageAnswerCardCompact: Boolean,
     val onImageTap: () -> Unit,
     val beforeImageZoom: () -> Unit,
 )
@@ -868,6 +870,13 @@ private fun V4ImageBlock(block: JsonObject, context: V4RenderContext) {
         loaded = true
     }
     val bringIntoView = remember(asset) { BringIntoViewRequester() }
+    val imeBottom = WindowInsets.ime.getBottom(LocalDensity.current)
+    LaunchedEffect(context.imageAnswerCardCompact, imeBottom, image) {
+        if (context.imageAnswerCardCompact && imeBottom > 0 && image != null) {
+            withFrameNanos { }
+            bringIntoView.bringIntoView()
+        }
+    }
     LaunchedEffect(context.imageAnswerCardActive, image) {
         if (context.imageAnswerCardActive && image != null) {
             withFrameNanos { }
@@ -1141,6 +1150,8 @@ fun LayoutV4ImageAnswerCard(
     onClose: () -> Unit,
     onResizeDelta: (Float) -> Unit,
     modifier: Modifier = Modifier,
+    compact: Boolean = false,
+    onInputFocus: () -> Unit = {},
 ) {
     val question = questions.getOrNull(currentIndex) ?: return
     val response = group.v4Array("responses").map { it.jsonObject }.firstOrNull { candidate ->
@@ -1151,27 +1162,60 @@ fun LayoutV4ImageAnswerCard(
     val caption = remember(group, question.id) { imageQuestionCaption(group, question.id, question.number) }
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
+    var focusOnNavigation by remember { mutableStateOf(false) }
+    var showInstructions by remember(question.id) { mutableStateOf(false) }
+    fun navigate(delta: Int) {
+        val target = questions.getOrNull(currentIndex + delta) ?: return
+        focusOnNavigation = compact && target.isTextInput && editable && !submitted
+        if (!focusOnNavigation) {
+            focusManager.clearFocus(force = true)
+            keyboard?.hide()
+        }
+        onCommit(question.id)
+        if (delta < 0) onPrevious() else onNext()
+    }
+    @Composable
+    fun NavigationButton(previous: Boolean) {
+        TextButton(onClick = { navigate(if (previous) -1 else 1) },
+            enabled = if (previous) currentIndex > 0 else currentIndex < questions.lastIndex,
+            contentPadding = if (compact) PaddingValues(0.dp) else ButtonDefaults.TextButtonContentPadding,
+            modifier = Modifier.widthIn(min = 48.dp)
+                .testTag(if (previous) "v4-image-card-previous" else "v4-image-card-next")
+                .semantics { contentDescription = if (previous) "上一题" else "下一题" }) {
+            Text(if (compact) { if (previous) "‹" else "›" } else { if (previous) "上一题" else "下一题" })
+        }
+    }
+    if (showInstructions) AlertDialog(onDismissRequest = { showInstructions = false },
+        title = { Text("Q${question.number} · 作答要求") },
+        text = { AnnotatableText(com.eenglish.listening.domain.annotation.AnnotationDocument.single(
+            question.instructions.ifBlank { imageFillLimitHint(question) }, "question", "${question.id}/instructions", "und")) },
+        confirmButton = { TextButton(onClick = { showInstructions = false }) { Text("关闭") } })
 
     Surface(modifier.fillMaxWidth().testTag("v4-image-answer-card"),
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp), tonalElevation = 6.dp,
         shadowElevation = 6.dp) {
         Column(Modifier.fillMaxSize()) {
-            Column(Modifier.fillMaxWidth().heightIn(min = 36.dp).draggable(
+            Column(Modifier.fillMaxWidth().heightIn(min = if (compact) 16.dp else 36.dp).draggable(
                 state = rememberDraggableState { onResizeDelta(it) }, orientation = Orientation.Vertical,
+                enabled = !compact,
             ).testTag("v4-image-card-drag-handle").semantics {
                 contentDescription = "上下拖动调整答题卡高度"
             }, horizontalAlignment = Alignment.CenterHorizontally) {
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(if (compact) 4.dp else 8.dp))
                 Box(Modifier.width(36.dp).height(4.dp).background(
                     MaterialTheme.colorScheme.outline, RoundedCornerShape(2.dp)))
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(if (compact) 4.dp else 6.dp))
             }
             Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp),
                 verticalAlignment = Alignment.CenterVertically) {
-                Text("Q${question.number}", style = MaterialTheme.typography.titleLarge,
+                Text("Q${question.number}", style = if (compact) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleLarge,
                     modifier = Modifier.weight(1f).testTag("v4-image-card-question"))
-                Text("${currentIndex + 1}/${questions.size}", style = MaterialTheme.typography.titleMedium,
+                Text("${currentIndex + 1}/${questions.size}", style = if (compact) MaterialTheme.typography.labelMedium else MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.primary, modifier = Modifier.testTag("v4-image-card-position"))
+                if (compact) {
+                    NavigationButton(previous = true)
+                    NavigationButton(previous = false)
+                }
                 TextButton(onClick = {
                     focusManager.clearFocus(force = true)
                     onCommit(question.id)
@@ -1181,11 +1225,11 @@ fun LayoutV4ImageAnswerCard(
             HorizontalDivider()
             key(question.id) {
                 Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    if (caption.isNotBlank()) V4SelectableText(imageCaptionProjection(group, question.id, question.number, questions.associateBy { it.id }),
+                    .padding(horizontal = 16.dp, vertical = if (compact) 4.dp else 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 12.dp)) {
+                    if (!compact && caption.isNotBlank()) V4SelectableText(imageCaptionProjection(group, question.id, question.number, questions.associateBy { it.id }),
                         "v4-image-card-caption", style = MaterialTheme.typography.titleMedium)
-                    if (question.instructions.isNotBlank()) AnnotatableText(
+                    if (!compact && question.instructions.isNotBlank()) AnnotatableText(
                         com.eenglish.listening.domain.annotation.AnnotationDocument.single(question.instructions,
                             "question", "${question.id}/instructions", "und"),
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1196,9 +1240,23 @@ fun LayoutV4ImageAnswerCard(
                             val focusRequesters = remember(question.id, slots.size) {
                                 List(slots.size) { FocusRequester() }
                             }
+                            LaunchedEffect(question.id) {
+                                if (focusOnNavigation) {
+                                    focusOnNavigation = false
+                                    focusRequesters.firstOrNull()?.requestFocus()
+                                    keyboard?.show()
+                                }
+                            }
                             slots.forEachIndexed { ordinal, slot ->
                                 val slotIndex = slot.v4Int("slotIndex")
                                 var hadFocus by remember(question.id, slotIndex) { mutableStateOf(false) }
+                                val bringIntoView = remember { BringIntoViewRequester() }
+                                LaunchedEffect(hadFocus, compact) {
+                                    if (hadFocus) {
+                                        withFrameNanos { }
+                                        bringIntoView.bringIntoView()
+                                    }
+                                }
                                 OutlinedTextField(
                                     value = parts.getOrElse(slotIndex) { "" },
                                     onValueChange = { next ->
@@ -1218,8 +1276,10 @@ fun LayoutV4ImageAnswerCard(
                                     ),
                                     keyboardActions = KeyboardActions(
                                         onNext = {
-                                            onCommit(question.id)
-                                            focusRequesters.getOrNull(ordinal + 1)?.requestFocus()
+                                            if (ordinal < slots.lastIndex) {
+                                                onCommit(question.id)
+                                                focusRequesters[ordinal + 1].requestFocus()
+                                            } else navigate(1)
                                         },
                                         onDone = {
                                             onCommit(question.id)
@@ -1228,8 +1288,12 @@ fun LayoutV4ImageAnswerCard(
                                         },
                                     ),
                                     modifier = Modifier.fillMaxWidth().focusRequester(focusRequesters[ordinal])
+                                        .bringIntoViewRequester(bringIntoView)
                                         .onFocusChanged { state ->
-                                            if (state.isFocused) hadFocus = true
+                                            if (state.isFocused) {
+                                                hadFocus = true
+                                                onInputFocus()
+                                            }
                                             else if (hadFocus) {
                                                 hadFocus = false
                                                 onCommit(question.id)
@@ -1239,6 +1303,12 @@ fun LayoutV4ImageAnswerCard(
                                             else "v4-image-card-input-${question.number}-${ordinal + 1}"),
                                 )
                             }
+                            if (compact) Text(imageFillLimitHint(question) + " · 查看要求",
+                                style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 32.dp)
+                                    .clickable(role = Role.Button) { showInstructions = true }
+                                    .testTag("v4-image-card-compact-instructions"))
                         }
                         "singleChoice", "matching" -> {
                             val poolId = response.v4String("optionPoolId")
@@ -1267,24 +1337,25 @@ fun LayoutV4ImageAnswerCard(
                         style = MaterialTheme.typography.bodyMedium)
                 }
             }
-            HorizontalDivider()
-            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+            if (!compact) HorizontalDivider()
+            if (!compact) Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween) {
-                TextButton(onClick = {
-                    focusManager.clearFocus(force = true)
-                    onCommit(question.id)
-                    onPrevious()
-                }, enabled = currentIndex > 0, modifier = Modifier.testTag("v4-image-card-previous")) {
-                    Text("上一题")
-                }
-                TextButton(onClick = {
-                    focusManager.clearFocus(force = true)
-                    onCommit(question.id)
-                    onNext()
-                }, enabled = currentIndex < questions.lastIndex,
-                    modifier = Modifier.testTag("v4-image-card-next")) { Text("下一题") }
+                NavigationButton(previous = true)
+                NavigationButton(previous = false)
             }
         }
+    }
+}
+
+private fun imageFillLimitHint(question: Question): String {
+    val limit = question.wordLimit ?: return "按题目要求填写"
+    if (limit.numberOnly) return limit.maxNumbers?.let { "最多${it}个数字" } ?: "限数字"
+    val words = "最多${limit.maxWords}个词"
+    return when {
+        limit.wordsOrNumber -> "$words，或数字"
+        limit.maxNumbers == 0 -> words
+        limit.maxNumbers == null -> "$words，可含数字"
+        else -> "$words，可加${limit.maxNumbers}个数字"
     }
 }
 

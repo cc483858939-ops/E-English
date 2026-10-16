@@ -36,7 +36,7 @@ fun formatSpeed(speed: Float): String = if (speed % 1f == 0f) "${speed.toInt()}.
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AudioControls(state: AudioState, onToggle: () -> Unit, onSeek: (Long) -> Unit, compact: Boolean = false,
-    onSeekBy: (Long) -> Unit = {}, onSpeed: (Float) -> Unit = {}) {
+    onSeekBy: (Long) -> Unit = {}, onSpeed: (Float) -> Unit = {}, singleRow: Boolean = false) {
     var dragging by remember { mutableStateOf(false) }
     var dragValue by remember { mutableFloatStateOf(0f) }
     var speedMenu by remember { mutableStateOf(false) }
@@ -56,7 +56,7 @@ fun AudioControls(state: AudioState, onToggle: () -> Unit, onSeek: (Long) -> Uni
                     JumpIcon(forward = false)
                 }
                 FilledIconButton(onClick = onToggle, enabled = enabled, shape = CircleShape,
-                    modifier = Modifier.size(56.dp).testTag("audio-toggle").semantics {
+                    modifier = Modifier.size(if (singleRow) 48.dp else 56.dp).testTag("audio-toggle").semantics {
                         contentDescription = if (state.isPlaying) "暂停" else "播放"
                     }) {
                     val color = LocalContentColor.current
@@ -75,7 +75,10 @@ fun AudioControls(state: AudioState, onToggle: () -> Unit, onSeek: (Long) -> Uni
                     modifier = Modifier.size(48.dp).testTag("audio-forward-5").semantics { contentDescription = "快进5秒" }) {
                     JumpIcon(forward = true)
                 }
-                Box(Modifier.weight(1f, fill = false)) {
+                if (singleRow) Text("${formatTime(state.positionMs)} / ${formatTime(state.durationMs)}",
+                    style = MaterialTheme.typography.labelSmall, maxLines = 1,
+                    modifier = Modifier.weight(1f).testTag("audio-compact-time"))
+                if (!singleRow) Box(Modifier.weight(1f, fill = false)) {
                     FilledTonalButton(onClick = { speedMenu = true },
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp), shape = CircleShape,
                         modifier = Modifier.widthIn(min = 64.dp).heightIn(min = 48.dp).testTag("audio-speed")
@@ -91,7 +94,7 @@ fun AudioControls(state: AudioState, onToggle: () -> Unit, onSeek: (Long) -> Uni
                     }
                 }
             }
-            Row(Modifier.fillMaxWidth().testTag("audio-progress"), verticalAlignment = Alignment.CenterVertically,
+            if (!singleRow) Row(Modifier.fillMaxWidth().testTag("audio-progress"), verticalAlignment = Alignment.CenterVertically,
                 // Material Slider extends its accessibility hit area horizontally by 10dp.
                 horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(formatTime(displayed.toLong()), fontSize = 12.sp, maxLines = 1,

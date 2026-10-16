@@ -11,6 +11,8 @@ import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.action.ViewActions.click
 import androidx.test.espresso.action.ViewActions.closeSoftKeyboard
 import androidx.test.espresso.action.ViewActions.replaceText
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import androidx.test.espresso.matcher.ViewMatchers.withTagValue
@@ -143,6 +145,10 @@ class PracticeScreenImeUiTest {
         waitForIme(true)
         waitForSubmitVisible(false)
         compose.onNodeWithTag("practice-submit").assertDoesNotExist()
+        compose.onNodeWithTag("audio-compact-time").assertExists()
+        compose.onNodeWithTag("audio-progress").assertDoesNotExist()
+        assertTrue("Typing should release the player's extra row for the question",
+            compose.onNodeWithTag("practice-player").fetchSemanticsNode().boundsInRoot.height < initialPlayerBounds.height)
         assertFieldVisibleAboveKeyboardAndBelowPlayer(9)
         fields.getValue(9).perform(replaceText("nine"))
 
@@ -153,7 +159,20 @@ class PracticeScreenImeUiTest {
         assertFieldVisibleAboveKeyboardAndBelowPlayer(8)
         fields.getValue(8).perform(replaceText("eight"))
 
+        // Expose the last editor before tapping it. Native bounds alone do not include the
+        // Compose viewport's clip, so a click on its off-screen center can hit the keyboard.
+        val lowerEdit = compose.activity.window.decorView.findViewWithTag<EditText>("inline-input-10")!!
+        val lowerLocation = IntArray(2).also { lowerEdit.getLocationOnScreen(it) }
+        val windowFrame = android.graphics.Rect().also { compose.activity.window.decorView.getWindowVisibleDisplayFrame(it) }
+        val overflow = (lowerLocation[1] + lowerEdit.height - windowFrame.bottom + 24).coerceAtLeast(0)
+        if (overflow > 0) compose.onNodeWithTag("practice-list")
+            .performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, overflow.toFloat()) }
+        compose.waitForIdle()
         fields.getValue(10).perform(click())
+        fields.getValue(10).check { view, error ->
+            if (error != null) throw error
+            assertTrue("Q10 must receive focus before checking keyboard avoidance", view.hasFocus())
+        }
         assertFieldVisibleAboveKeyboardAndBelowPlayer(10)
         fields.getValue(10).perform(replaceText("ten"))
         fields.getValue(9).perform(click())
@@ -168,6 +187,7 @@ class PracticeScreenImeUiTest {
         waitForIme(false)
         waitForSubmitVisible(true)
         compose.onNodeWithTag("practice-submit").assertExists()
+        compose.onNodeWithTag("audio-progress").assertExists()
         assertFieldFullyVisible(9)
         val finalPlayerBounds = compose.onNodeWithTag("practice-player").fetchSemanticsNode().boundsInRoot
         assertTrue("The player position must not move as the list exposes focused fields",
@@ -197,6 +217,13 @@ class PracticeScreenImeUiTest {
         waitForIme(true)
         val edit = compose.activity.window.decorView.findViewWithTag<EditText>("inline-input-$number")
             ?: throw AssertionError("Q$number EditText was not attached")
+        // Focus/IME scrolling is asynchronous; assert the final viewport, not the first click frame.
+        compose.waitUntil(5000) {
+            val visible = android.graphics.Rect()
+            val frame = android.graphics.Rect()
+            compose.activity.window.decorView.getWindowVisibleDisplayFrame(frame)
+            edit.getGlobalVisibleRect(visible) && visible.height() == edit.height && visible.bottom <= frame.bottom
+        }
         val rect = android.graphics.Rect()
         val visibleFrame = android.graphics.Rect()
         val full = edit.getGlobalVisibleRect(rect) && rect.height() == edit.height

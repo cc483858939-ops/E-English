@@ -8,7 +8,6 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import com.eenglish.listening.domain.annotation.AnnotationDocument
 import com.eenglish.listening.domain.gapfill.GapFillGroup
 import com.eenglish.listening.domain.gapfill.InlinePromptProjection
@@ -45,10 +44,9 @@ fun InlineGapFillGroup(group: GapFillGroup, answers: Map<String, String>,
         .testTag("inline-group-$first-$last")) {
         // A different Room attempt must never inherit a focused editor or stale IME text.
         key(LocalAnswerSession.current, group.questions.first().id) {
-            AndroidView(
+            NativeInlineAnswerView(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
                     .testTag("inline-summary-$first"),
-                factory = { context -> NativeInlineGapFillView(context) },
                 update = { view ->
                     view.render(group, projection, answers, editable, activeQuestionNumber, highlights,
                         annotations, fontPx, linePx, onActivate, onEdit, onCommit,

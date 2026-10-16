@@ -28,7 +28,9 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.coroutines.flow.first
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Unit, onSeek: (Long) -> Unit,
     mode: TranscriptMode, onModeChange: (TranscriptMode) -> Unit, onBack: () -> Unit,
@@ -53,6 +55,7 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
     var showJump by remember { mutableStateOf(false) }
     val index = questions.indexOfFirst { it.number == questionNumber }.coerceAtLeast(0)
     val question = questions.getOrNull(index)
+    val compactInput = WindowInsets.isImeVisible && expanded && question?.isTextInput == true && !state.submitted
     val activeV4Group = remember(state.questionLayoutV4, question?.id) {
         state.questionLayoutV4?.get("groups")?.jsonArray?.firstOrNull { element ->
             val ids = (element as? JsonObject)?.get("questionIds") as? kotlinx.serialization.json.JsonArray
@@ -95,6 +98,17 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
     var restoreRequest by remember { mutableIntStateOf(0) }
     var cardHeaderHeightPx by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
+    var imeReadingOffset by remember(pageState) { mutableStateOf<Int?>(null) }
+    val imeInsets = WindowInsets.ime
+    LaunchedEffect(compactInput) {
+        if (compactInput) imeReadingOffset = transcriptScroll.value
+        else imeReadingOffset?.let {
+            snapshotFlow { imeInsets.getBottom(density) }.first { bottom -> bottom == 0 }
+            withFrameNanos { }
+            transcriptScroll.scrollTo(it)
+            imeReadingOffset = null
+        }
+    }
     LaunchedEffect(restoreRequest) {
         // Only restore after a resize gesture or toggle, never on every drag frame/recomposition.
         if (readingOffsetToRestore == null && questionOffsetToRestore == null) return@LaunchedEffect
@@ -135,12 +149,13 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
     }, contentWindowInsets = WindowInsets.safeDrawing) { insets ->
         Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets).imePadding()) {
             Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).testTag("transcript-player")) {
-                AudioControls(audio, onToggle, onSeek, compact = true, onSeekBy = onSeekBy, onSpeed = onSpeed)
+                AudioControls(audio, onToggle, onSeek, compact = true, onSeekBy = onSeekBy, onSpeed = onSpeed,
+                    singleRow = compactInput)
             }
             state.error?.let {
                 Text(it, Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.error)
             }
-            ScrollableTabRow(selectedTabIndex = mode.ordinal, edgePadding = 0.dp,
+            if (!compactInput) ScrollableTabRow(selectedTabIndex = mode.ordinal, edgePadding = 0.dp,
                 modifier = Modifier.testTag("transcript-language-tabs")) {
                 TranscriptMode.entries.forEach { item ->
                     val label = when (item) {
@@ -154,7 +169,7 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().testTag("intensive-content")) {
                 val headerHeight = if (cardHeaderHeightPx == 0) 48.dp else with(density) { cardHeaderHeightPx.toDp() }
                 // On unusually short viewports, navigation joins the scrollable question body.
-                val fixedNavigation = maxHeight >= headerHeight + 48.dp + 1.dp + 96.dp
+                val fixedNavigation = !compactInput && maxHeight >= headerHeight + 48.dp + 1.dp + 96.dp
                 val chromeHeight = headerHeight + 1.dp + if (fixedNavigation) 48.dp else 0.dp
                 val minimumViewport = ((maxHeight - chromeHeight) / 2f).coerceIn(1.dp, 48.dp)
                 val minimumPanel = (maxHeight * 0.25f).coerceAtLeast(chromeHeight + minimumViewport)
@@ -164,7 +179,7 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
                 val panelHeight = when {
                     question == null -> 0.dp
                     !expanded -> headerHeight
-                    else -> (maxHeight * panelRatio).coerceIn(minimumPanel, maximumPanel)
+                    else -> (maxHeight * if (compactInput) 0.65f else panelRatio).coerceIn(minimumPanel, maximumPanel)
                 }
                 val readingHeight = (maxHeight - panelHeight).coerceAtLeast(1.dp)
                 // Pair an explicit viewport height with tail padding. Both scroll ranges remain
@@ -238,6 +253,7 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
                             sharedTextFallbackGroup = activeTextFallback,
                             v4Group = activeV4Group,
                             v4GroupQuestions = activeV4Questions,
+                            compact = compactInput,
                             onHeaderSize = { cardHeaderHeightPx = it },
                             onResizeStarted = {
                                 resizeReadingAnchor = transcriptScroll.value

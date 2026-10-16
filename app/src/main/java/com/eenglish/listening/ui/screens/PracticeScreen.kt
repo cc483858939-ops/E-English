@@ -34,6 +34,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.coroutines.flow.first
 
 @Composable
 fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Unit, onSeek: (Long) -> Unit,
@@ -61,6 +62,27 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
     }
     val imageCardQuestions = activeImageGroup?.get("questionIds")?.jsonArray.orEmpty()
         .mapNotNull { id -> state.part?.questions?.firstOrNull { it.id == id.jsonPrimitive.content } }
+    val compactImageCard = imeVisible && !state.submitted &&
+        imageCardQuestions.getOrNull(activeImageQuestionIndex)?.isTextInput == true
+    var imageImeScrollAnchor by remember(state.part?.id, state.attempt?.session?.id, activeImageGroupId) {
+        mutableStateOf<Pair<Int, Int>?>(null)
+    }
+    val imeInsets = WindowInsets.ime
+    val density = LocalDensity.current
+    LaunchedEffect(compactImageCard, activeImageGroupId) {
+        if (compactImageCard) {
+            if (imageImeScrollAnchor == null) imageImeScrollAnchor =
+                listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+        } else {
+            imageImeScrollAnchor?.let { (index, offset) ->
+                // Wait for the expanded player/card constraints before restoring the image position.
+                snapshotFlow { imeInsets.getBottom(density) }.first { it == 0 }
+                withFrameNanos { }
+                listState.scrollToItem(index, offset)
+            }
+            imageImeScrollAnchor = null
+        }
+    }
     BackHandler(enabled = activeImageGroup != null) {
         onFlushInline()
         activeImageGroupId = null
@@ -95,14 +117,23 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
             if (state.part != null) {
                 Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
                     .testTag("practice-player")) {
-                    AudioControls(audio, onToggle, onSeek, compact = true, onSeekBy = onSeekBy, onSpeed = onSpeed)
+                    AudioControls(audio, onToggle, onSeek, compact = true, onSeekBy = onSeekBy, onSpeed = onSpeed,
+                        singleRow = imeVisible && !state.submitted && state.attempt != null)
                 }
             }
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
                 val availableHeightPx = with(LocalDensity.current) { maxHeight.toPx() }
                 val minimumCard = minOf(220.dp, maxHeight * 0.55f)
                 val maximumCard = maxHeight - minOf(120.dp, maxHeight * 0.3f)
-                val cardHeight = (maxHeight * imageCardRatio).coerceIn(minimumCard, maximumCard)
+                val question = imageCardQuestions.getOrNull(activeImageQuestionIndex)
+                val inputCount = activeImageGroup?.get("slots")?.jsonArray.orEmpty().count {
+                    it.jsonObject["questionId"]?.jsonPrimitive?.contentOrNull == question?.id
+                }.coerceAtLeast(1)
+                // IME mode has its own content budget; never overwrite the user's expanded height.
+                val compactHeight = (80.dp + (inputCount * 72 + 32).dp * LocalDensity.current.fontScale)
+                    .coerceAtMost(maxHeight - minOf(96.dp, maxHeight * 0.25f))
+                val cardHeight = if (compactImageCard) compactHeight
+                    else (maxHeight * imageCardRatio).coerceIn(minimumCard, maximumCard)
                 Column(Modifier.fillMaxSize()) {
                     LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("practice-list"), state = listState, contentPadding = PaddingValues(20.dp)) {
                         val part = state.part
@@ -149,6 +180,8 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
                                         onActivate = { activeQuestionNumber = it },
                                         imageAnswerCardOverview = hasV4QuestionImage(group),
                                         imageAnswerCardActive = group["groupId"]?.jsonPrimitive?.contentOrNull == activeImageGroupId,
+                                        imageAnswerCardCompact = compactImageCard &&
+                                            group["groupId"]?.jsonPrimitive?.contentOrNull == activeImageGroupId,
                                         onImageTap = {
                                             val groupId = group["groupId"]?.jsonPrimitive?.contentOrNull
                                             if (groupId != activeImageGroupId) activeImageQuestionIndex = 0
@@ -244,6 +277,11 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
                                     (imageCardRatio - delta / availableHeightPx).coerceIn(0.3f, 0.8f)
                             },
                             modifier = Modifier.height(cardHeight),
+                            compact = compactImageCard,
+                            onInputFocus = {
+                                if (!imeVisible && imageImeScrollAnchor == null) imageImeScrollAnchor =
+                                    listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+                            },
                         )
                     }
                 }

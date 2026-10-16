@@ -48,7 +48,7 @@ fun ResizableQuestionPanel(question: Question, selected: String?, expanded: Bool
     dirty: Boolean = false,
     onGroupSelect: (String, String) -> Unit = { _, _ -> },
     onGroupEdit: (String, String) -> Unit = onGroupSelect,
-    onGroupCommit: (String) -> Unit = {}, onActivate: (Int) -> Unit = {}) {
+    onGroupCommit: (String) -> Unit = {}, onActivate: (Int) -> Unit = {}, compact: Boolean = false) {
     val navigation: @Composable () -> Unit = {
         Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             TextButton(onClick = onPrevious, enabled = hasPrevious,
@@ -58,7 +58,7 @@ fun ResizableQuestionPanel(question: Question, selected: String?, expanded: Bool
                 modifier = Modifier.testTag("transcript-next")) { Text("下一题") }
         }
     }
-    val chromeHeight = headerHeight + 1.dp + if (fixedNavigation) 48.dp else 0.dp
+    val chromeHeight = headerHeight + 1.dp + if (fixedNavigation && !compact) 48.dp else 0.dp
     val questionHeight = (panelHeight - chromeHeight).coerceAtLeast(1.dp)
     // This viewport grows with the panel, so its tail must grow by the same amount.
     val questionEndSpace = (panelHeight - minimumPanelHeight).coerceAtLeast(0.dp)
@@ -67,11 +67,11 @@ fun ResizableQuestionPanel(question: Question, selected: String?, expanded: Bool
         Column(Modifier.padding(horizontal = 12.dp)) {
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).onSizeChanged { onHeaderSize(it.height) },
                 verticalAlignment = Alignment.CenterVertically) {
-                Text("Q.${question.number} · ${selected?.let { "已选 $it" } ?: "未作答"}",
+                Text(if (compact) "Q.${question.number}" else "Q.${question.number} · ${selected?.let { "已选 $it" } ?: "未作答"}",
                     style = MaterialTheme.typography.titleSmall,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f).testTag("transcript-question-summary"))
-                if (expanded) {
+                if (expanded && !compact) {
                     Box(Modifier.width(64.dp).height(48.dp).testTag("transcript-drag-handle")
                         .semantics {
                             contentDescription = "上下拖动调整答题卡高度"
@@ -85,18 +85,29 @@ fun ResizableQuestionPanel(question: Question, selected: String?, expanded: Bool
                         Box(Modifier.width(32.dp).height(4.dp).background(Color.Gray, RoundedCornerShape(2.dp)))
                     }
                 }
-                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+                if (compact) {
+                    TextButton(onClick = onPrevious, enabled = hasPrevious, contentPadding = PaddingValues(0.dp),
+                        modifier = Modifier.width(48.dp).testTag("transcript-previous")
+                            .semantics { contentDescription = "上一题" }) { Text("‹") }
+                    TextButton(onClick = onJump, contentPadding = PaddingValues(0.dp),
+                        modifier = Modifier.width(48.dp).testTag("transcript-jump")
+                            .semantics { contentDescription = "跳转题号" }) { Text("跳题") }
+                    TextButton(onClick = onNext, enabled = hasNext, contentPadding = PaddingValues(0.dp),
+                        modifier = Modifier.width(48.dp).testTag("transcript-next")
+                            .semantics { contentDescription = "下一题" }) { Text("›") }
+                }
+                Box(if (compact) Modifier else Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
                     TextButton(onClick = onExpand, modifier = Modifier.testTag("transcript-card-toggle")) {
                         Text(if (expanded) "收起" else "展开")
                     }
                 }
             }
             if (expanded) {
-                if (fixedNavigation) navigation()
+                if (fixedNavigation && !compact) navigation()
                 HorizontalDivider()
                 Column(Modifier.height(questionHeight).fillMaxWidth().testTag("transcript-question-body")
                     .verticalScroll(questionScroll).padding(start = 4.dp, end = 4.dp, bottom = questionEndSpace)) {
-                    if (!fixedNavigation) navigation()
+                    if (!fixedNavigation && !compact) navigation()
                     if (submitted) Text("已提交 · 只读", style = MaterialTheme.typography.labelMedium)
                     if (v4Group != null && v4GroupQuestions.isNotEmpty()) {
                         LayoutV4GroupView(v4Group, v4GroupQuestions, answers, editable, submitted, saving,

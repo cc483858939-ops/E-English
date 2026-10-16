@@ -14,6 +14,7 @@ import android.graphics.Paint
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import android.view.ViewTreeObserver
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
@@ -36,6 +37,7 @@ import com.eenglish.listening.domain.grading.Grader
  * This is one native layout, not a dialog, detached input or absolute screen overlay.
  */
 class NativeInlineGapFillView(context: Context) : FrameLayout(context) {
+    internal var onRequestEditorVisibility: ((Rect) -> Unit)? = null
     private val density = resources.displayMetrics.density
     private val touchTargetHeight = (48f * density).toInt()
     private val boxHeight = touchTargetHeight
@@ -51,6 +53,34 @@ class NativeInlineGapFillView(context: Context) : FrameLayout(context) {
     private var onActivated: (Int) -> Unit = {}
     private var onChanged: (String, Int, String) -> Unit = { _, _, _ -> }
     private var onBlur: (String) -> Unit = {}
+    private var lastFocusedEditor: EditText? = null
+    private val lastVisibleWindow = Rect()
+    private val keepFocusedEditorVisible = ViewTreeObserver.OnGlobalLayoutListener {
+        val input = editors.firstOrNull { it.input.hasFocus() }?.input
+        if (input != null && input.isShown) {
+            val visible = Rect()
+            val window = Rect().also { rootView.getWindowVisibleDisplayFrame(it) }
+            val location = IntArray(2).also { input.getLocationOnScreen(it) }
+            // Keyboard/player resizing happens after the focus event. Recheck the exact editor
+            // when the viewport settles instead of scrolling its entire question group.
+            val changed = input !== lastFocusedEditor || window != lastVisibleWindow
+            lastFocusedEditor = input
+            lastVisibleWindow.set(window)
+            if (changed && (!input.getGlobalVisibleRect(visible) || visible.height() < input.height ||
+                location[1] + input.height > window.bottom)) requestEditorOnScreen(input)
+        } else lastFocusedEditor = null
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        viewTreeObserver.addOnGlobalLayoutListener(keepFocusedEditorVisible)
+    }
+
+    override fun onDetachedFromWindow() {
+        if (viewTreeObserver.isAlive) viewTreeObserver.removeOnGlobalLayoutListener(keepFocusedEditorVisible)
+        lastFocusedEditor = null
+        super.onDetachedFromWindow()
+    }
 
     init {
         clipChildren = false
@@ -154,7 +184,13 @@ class NativeInlineGapFillView(context: Context) : FrameLayout(context) {
                 // Let the AndroidView interop ask its Compose scroll parent to move only
                 // enough to expose this exact editor. PracticeScreen must not scroll the
                 // entire LazyColumn item in response to the same focus event.
-                input.requestRectangleOnScreen(Rect(0, 0, input.width, input.height), false)
+                val rect = Rect(0, 0, input.width, input.height)
+                val request = onRequestEditorVisibility
+                if (request == null) input.requestRectangleOnScreen(rect, false)
+                else {
+                    offsetDescendantRectToMyCoords(input, rect)
+                    request(rect)
+                }
             }
         }
     }

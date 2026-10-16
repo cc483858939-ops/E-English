@@ -229,9 +229,8 @@ private fun StructuredLayoutRun(
     val highlights = partId?.let { projection.visibleHighlights(it, group, questions, annotations.highlights) }.orEmpty()
     Column(Modifier.fillMaxWidth().testTag("structured-run-$path")) {
         key(LocalAnswerSession.current, "$path-${projection.slots.firstOrNull()?.questionId.orEmpty()}") {
-            AndroidView(
+            NativeInlineAnswerView(
                 modifier = Modifier.fillMaxWidth(),
-                factory = { context -> NativeInlineGapFillView(context) },
                 update = { view ->
                     view.renderStructured(group, questions, projection, answers, editable,
                         activeQuestionNumber, highlights, annotations, fontPx, linePx, onActivate,
