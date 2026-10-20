@@ -12,6 +12,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.eenglish.listening.R
@@ -19,6 +25,11 @@ import com.eenglish.listening.ui.components.AudioControls
 import com.eenglish.listening.audio.AudioState
 import com.eenglish.listening.ui.components.ResizableQuestionPanel
 import com.eenglish.listening.ui.components.AnnotatableText
+import com.eenglish.listening.ui.components.LocalQuestionReview
+import com.eenglish.listening.ui.components.ReviewInteraction
+import com.eenglish.listening.ui.components.hasV4QuestionImage
+import com.eenglish.listening.ui.components.PlaybackTranscriptContent
+import com.eenglish.listening.ui.components.TranscriptPlaybackBounds
 import com.eenglish.listening.domain.annotation.AnnotationDocument
 import com.eenglish.listening.domain.gapfill.QuestionLayoutDisplayParser
 import com.eenglish.listening.domain.gapfill.QuestionDisplayItem
@@ -29,6 +40,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.coroutines.flow.first
+import com.eenglish.listening.domain.grading.questionReviews
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -55,6 +67,16 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
     var showJump by remember { mutableStateOf(false) }
     val index = questions.indexOfFirst { it.number == questionNumber }.coerceAtLeast(0)
     val question = questions.getOrNull(index)
+    val reviews = remember(questions, state.answers, state.submitted) {
+        if (state.submitted) questionReviews(questions, state.answers) else emptyList()
+    }
+    val currentReview = reviews.firstOrNull { question?.id in it.questionIds }
+    val reviewIndex = reviews.indexOf(currentReview)
+    val previousNumber = if (currentReview != null) reviews.getOrNull(reviewIndex - 1)?.questions?.firstOrNull()?.number
+        else questions.getOrNull(index - 1)?.number
+    val nextNumber = if (currentReview != null) reviews.getOrNull(reviewIndex + 1)?.questions?.firstOrNull()?.number
+        else questions.getOrNull(index + 1)?.number
+    var reviewAnswers by pageState.reviewAnswers
     val compactInput = WindowInsets.isImeVisible && expanded && question?.isTextInput == true && !state.submitted
     val activeV4Group = remember(state.questionLayoutV4, question?.id) {
         state.questionLayoutV4?.get("groups")?.jsonArray?.firstOrNull { element ->
@@ -79,11 +101,62 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
     val activeTextFallback = displayItems.asSequence().filterIsInstance<QuestionDisplayItem.SharedTextFallback>()
         .firstOrNull { item -> item.group.questions.any { it.id == question?.id } }?.group
     val transcriptScroll = pageState.transcriptScroll
+    val boundTimeline = remember(state.part, state.transcriptTimeline) {
+        state.part?.let { part -> state.transcriptTimeline?.takeIf { it.matches(part) } }
+    }
+    val timeline = remember(boundTimeline, audio.durationMs) {
+        if (audio.durationMs == 0L) boundTimeline else boundTimeline?.forDuration(audio.durationMs)
+    }
+    var following by pageState.followPlayback
+    var seekSequence by remember(pageState) { mutableIntStateOf(0) }
+    var handledSeek by remember(pageState) { mutableIntStateOf(0) }
+    var pendingSeek by remember(pageState) { mutableStateOf<Long?>(null) }
+    var playbackBounds by remember(pageState, mode) { mutableStateOf<TranscriptPlaybackBounds?>(null) }
+    var viewportTop by remember { mutableFloatStateOf(0f) }
+    var viewportHeight by remember { mutableIntStateOf(0) }
+    val effectivePosition = pendingSeek ?: audio.positionMs
+    val activeSegment = timeline?.activeIndex(effectivePosition)
+    val anchorSegment = activeSegment ?: if (seekSequence != handledSeek) timeline?.nearestIndex(effectivePosition) else null
+    fun locatePlayback(position: Long) {
+        following = true
+        pendingSeek = position.coerceIn(0L, audio.durationMs.coerceAtLeast(0L))
+        seekSequence++
+    }
+    LaunchedEffect(audio.positionMs, pendingSeek) {
+        pendingSeek?.let { if (kotlin.math.abs(audio.positionMs - it) < 1000) pendingSeek = null }
+    }
+    LaunchedEffect(pendingSeek) {
+        if (pendingSeek != null) {
+            kotlinx.coroutines.delay(1000)
+            pendingSeek = null
+        }
+    }
+    LaunchedEffect(anchorSegment, playbackBounds, mode, following, audio.isPlaying, seekSequence, viewportHeight) {
+        val bounds = playbackBounds ?: return@LaunchedEffect
+        val index = anchorSegment ?: return@LaunchedEffect
+        if (!following || bounds.index != index || viewportHeight <= 0) return@LaunchedEffect
+        val explicit = seekSequence != handledSeek
+        val key = "${mode.name}:$index"
+        if (!explicit && pageState.lastFollowedSegment == key) return@LaunchedEffect
+        val top = transcriptScroll.value
+        if (bounds.top < top || bounds.bottom > top + viewportHeight) {
+            transcriptScroll.scrollTo((bounds.top - viewportHeight / 4).coerceAtLeast(0))
+        }
+        pageState.lastFollowedSegment = key
+        handledSeek = seekSequence
+    }
     val questionGroupKey = activeV4Group?.get("groupId")?.jsonPrimitive?.content
         ?: activeGroup?.questions?.first()?.id ?: activeStructured?.group?.groupId
         ?: activeImageGroup?.questions?.first()?.id ?: activeMatching?.questions?.first()?.id
         ?: activeMultipleChoice?.groupId ?: activeTextFallback?.questions?.first()?.id ?: question?.id
     val questionScroll = pageState.questionScroll
+    val panelScroll = if (currentReview != null && reviewAnswers) pageState.reviewScroll else questionScroll
+    LaunchedEffect(currentReview?.id) {
+        if (pageState.reviewId != currentReview?.id) {
+            pageState.reviewScroll.scrollTo(0)
+            pageState.reviewId = currentReview?.id
+        }
+    }
     LaunchedEffect(questionGroupKey) {
         // Reset only when the selected group changes, not when the route is reopened.
         if (pageState.questionGroupKey != questionGroupKey) {
@@ -114,7 +187,7 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
         if (readingOffsetToRestore == null && questionOffsetToRestore == null) return@LaunchedEffect
         withFrameNanos { }
         readingOffsetToRestore?.let { if (!transcriptScroll.isScrollInProgress) transcriptScroll.scrollTo(it) }
-        questionOffsetToRestore?.let { if (!questionScroll.isScrollInProgress) questionScroll.scrollTo(it) }
+        questionOffsetToRestore?.let { if (!panelScroll.isScrollInProgress) panelScroll.scrollTo(it) }
         readingOffsetToRestore = null
         questionOffsetToRestore = null
     }
@@ -149,7 +222,8 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
     }, contentWindowInsets = WindowInsets.safeDrawing) { insets ->
         Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets).imePadding()) {
             Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).testTag("transcript-player")) {
-                AudioControls(audio, onToggle, onSeek, compact = true, onSeekBy = onSeekBy, onSpeed = onSpeed,
+                AudioControls(audio, onToggle, { position -> locatePlayback(position); onSeek(position) }, compact = true,
+                    onSeekBy = { delta -> locatePlayback(audio.positionMs + delta); onSeekBy(delta) }, onSpeed = onSpeed,
                     singleRow = compactInput)
             }
             state.error?.let {
@@ -166,11 +240,20 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
                     Tab(selected = mode == item, onClick = { onModeChange(item) }, text = { Text(stringResource(label)) })
                 }
             }
+            if (timeline != null && !compactInput) Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                .padding(horizontal = 16.dp).testTag("transcript-follow-bar")
+                .semantics { stateDescription = activeSegment?.let { "播放段落:$it" } ?: "播放段落:无" },
+                horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text(if (following) "原文跟随播放" else "自由阅读", style = MaterialTheme.typography.labelMedium)
+                TextButton(onClick = { locatePlayback(audio.positionMs) }, enabled = !following,
+                    modifier = Modifier.testTag("transcript-follow-resume")) { Text(if (following) "跟随中" else "回到当前播放") }
+            }
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().testTag("intensive-content")) {
                 val headerHeight = if (cardHeaderHeightPx == 0) 48.dp else with(density) { cardHeaderHeightPx.toDp() }
                 // On unusually short viewports, navigation joins the scrollable question body.
-                val fixedNavigation = !compactInput && maxHeight >= headerHeight + 48.dp + 1.dp + 96.dp
-                val chromeHeight = headerHeight + 1.dp + if (fixedNavigation) 48.dp else 0.dp
+                val reviewTabsHeight = if (currentReview != null) 48.dp else 0.dp
+                val fixedNavigation = !compactInput && maxHeight >= headerHeight + reviewTabsHeight + 48.dp + 1.dp + 96.dp
+                val chromeHeight = headerHeight + reviewTabsHeight + 1.dp + if (fixedNavigation) 48.dp else 0.dp
                 val minimumViewport = ((maxHeight - chromeHeight) / 2f).coerceIn(1.dp, 48.dp)
                 val minimumPanel = (maxHeight * 0.25f).coerceAtLeast(chromeHeight + minimumViewport)
                     .coerceAtMost((maxHeight - minimumViewport).coerceAtLeast(headerHeight))
@@ -192,6 +275,15 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
                 Column(Modifier.fillMaxSize()) {
                     Column(
                         Modifier.height(readingHeight).fillMaxWidth().testTag("transcript-body")
+                            .onGloballyPositioned { viewportTop = it.positionInRoot().y; viewportHeight = it.size.height }
+                            .pointerInput(pageState, timeline != null) {
+                                if (timeline != null) awaitPointerEventScope {
+                                    while (true) {
+                                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                                        if (event.changes.any { it.pressed && !it.previousPressed }) following = false
+                                    }
+                                }
+                            }
                             .verticalScroll(transcriptScroll)
                             .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 16.dp + readingEndSpace),
                         verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -201,7 +293,9 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
                             Text(part.title, style = MaterialTheme.typography.headlineSmall)
                             if (part.transcript.english.isBlank()) Text("英文原文资料缺失")
                             if (part.transcript.chinese.isBlank()) Text("中文翻译资料缺失")
-                            when (mode) {
+                            if (timeline != null) PlaybackTranscriptContent(part.transcript, mode, activeSegment, anchorSegment,
+                                transcriptScroll, viewportTop, onBounds = { playbackBounds = it },
+                                onUserInteraction = { following = false }) else when (mode) {
                                 TranscriptMode.ENGLISH -> AnnotatableText(remember(part.transcript) {
                                     AnnotationDocument.transcript(part.transcript, "en") }, viewTag = "transcript-en")
                                 TranscriptMode.CHINESE -> AnnotatableText(remember(part.transcript) {
@@ -223,14 +317,21 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
                         } else Text("暂无已导入原文")
                     }
                     if (question != null) {
+                        CompositionLocalProvider(LocalQuestionReview provides currentReview?.let { item ->
+                            ReviewInteraction(reviews, item.id, { id ->
+                                reviews.firstOrNull { it.id == id }?.questions?.firstOrNull()?.let { questionNumber = it.number }
+                            }, locateActive = pageState.locatedQuestionNumber != questionNumber &&
+                                activeV4Group?.let { !hasV4QuestionImage(it) } != false,
+                                onLocated = { pageState.locatedQuestionNumber = questionNumber })
+                        }) {
                         ResizableQuestionPanel(question, state.answers[question.id], expanded, panelHeight, minimumPanel,
                             headerHeight = headerHeight, fixedNavigation = fixedNavigation, questionScroll = questionScroll,
                             heightRatio = panelHeight / availableHeight, ratioRange = minimumRatio..maximumRatio,
                             editable = !state.submitted && !state.submitting && state.attempt != null,
-                            submitted = state.submitted, hasPrevious = index > 0, hasNext = index < questions.lastIndex,
+                            submitted = state.submitted, hasPrevious = previousNumber != null, hasNext = nextNumber != null,
                             onExpand = {
                                 if (readingOffsetToRestore == null) readingOffsetToRestore = transcriptScroll.value
-                                questionOffsetToRestore = questionScroll.value
+                                questionOffsetToRestore = panelScroll.value
                                 if (expanded) {
                                     lastExpandedRatio = panelHeight / availableHeight
                                     panelRatio = headerHeight / availableHeight
@@ -238,8 +339,8 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
                                 expanded = !expanded
                                 restoreRequest++
                             },
-                            onPrevious = { onFlushInline(); questionNumber = questions[index - 1].number },
-                            onNext = { onFlushInline(); questionNumber = questions[index + 1].number },
+                            onPrevious = { onFlushInline(); previousNumber?.let { questionNumber = it } },
+                            onNext = { onFlushInline(); nextNumber?.let { questionNumber = it } },
                             onJump = { onFlushInline(); showJump = true }, onSelect = { onSelect(question.id, it) },
                             inlineGroup = activeGroup, structuredGroup = activeStructured?.group,
                             structuredQuestions = activeStructured?.questions.orEmpty(),
@@ -253,11 +354,14 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
                             sharedTextFallbackGroup = activeTextFallback,
                             v4Group = activeV4Group,
                             v4GroupQuestions = activeV4Questions,
+                            reviewItem = currentReview,
+                            reviewAnswers = reviewAnswers, onReviewAnswers = { reviewAnswers = it },
+                            reviewScroll = pageState.reviewScroll,
                             compact = compactInput,
                             onHeaderSize = { cardHeaderHeightPx = it },
                             onResizeStarted = {
                                 resizeReadingAnchor = transcriptScroll.value
-                                resizeQuestionAnchor = questionScroll.value
+                                resizeQuestionAnchor = panelScroll.value
                             },
                             onResizeDelta = { delta ->
                                 panelRatio = (panelRatio.coerceIn(minimumRatio, maximumRatio) - delta / availablePx)
@@ -273,11 +377,12 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
                             },
                             onSetRatio = { ratio ->
                                 readingOffsetToRestore = transcriptScroll.value
-                                questionOffsetToRestore = questionScroll.value
+                                questionOffsetToRestore = panelScroll.value
                                 panelRatio = ratio.coerceIn(minimumRatio, maximumRatio)
                                 lastExpandedRatio = panelRatio
                                 restoreRequest++
                             })
+                        }
                     }
                 }
             }
@@ -286,26 +391,39 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
 }
 
 /** Saved by the listening shell so popping the transcript does not discard reading state. */
-class TranscriptPageState(firstQuestionNumber: Int, readingOffset: Int = 0, questionOffset: Int = 0) {
+class TranscriptPageState(firstQuestionNumber: Int, readingOffset: Int = 0, questionOffset: Int = 0, reviewOffset: Int = 0) {
     val questionNumber = mutableIntStateOf(firstQuestionNumber)
     val expanded = mutableStateOf(true)
     val panelRatio = mutableFloatStateOf(0.45f)
     val lastExpandedRatio = mutableFloatStateOf(0.45f)
     val transcriptScroll = ScrollState(readingOffset)
     val questionScroll = ScrollState(questionOffset)
+    val reviewAnswers = mutableStateOf(false)
+    val reviewScroll = ScrollState(reviewOffset)
+    val followPlayback = mutableStateOf(true)
+    var lastFollowedSegment: String? = null
+    var reviewId: String? = null
+    var locatedQuestionNumber: Int? = null
     var questionGroupKey: String? = null
 
     companion object {
         val Saver = listSaver<TranscriptPageState, Any?>(
             save = { listOf(it.questionNumber.intValue, it.expanded.value,
                 it.panelRatio.floatValue, it.lastExpandedRatio.floatValue,
-                it.transcriptScroll.value, it.questionScroll.value, it.questionGroupKey) },
+                it.transcriptScroll.value, it.questionScroll.value, it.questionGroupKey,
+                it.reviewAnswers.value, it.reviewScroll.value, it.reviewId, it.locatedQuestionNumber,
+                it.followPlayback.value, it.lastFollowedSegment) },
             restore = { values ->
-                TranscriptPageState(values[0] as Int, values[4] as Int, values[5] as Int).apply {
+                TranscriptPageState(values[0] as Int, values[4] as Int, values[5] as Int, values.getOrNull(8) as? Int ?: 0).apply {
                     expanded.value = values[1] as Boolean
                     panelRatio.floatValue = values[2] as Float
                     lastExpandedRatio.floatValue = values[3] as Float
                     questionGroupKey = values[6] as String?
+                    reviewAnswers.value = values.getOrNull(7) as? Boolean ?: false
+                    reviewId = values.getOrNull(9) as? String
+                    locatedQuestionNumber = values.getOrNull(10) as? Int
+                    followPlayback.value = values.getOrNull(11) as? Boolean ?: true
+                    lastFollowedSegment = values.getOrNull(12) as? String
                 }
             },
         )

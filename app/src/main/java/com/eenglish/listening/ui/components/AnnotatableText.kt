@@ -70,7 +70,9 @@ fun AnnotatableText(document: AnnotationDocument, modifier: Modifier = Modifier,
     activeDocument: AnnotationDocument? = null, onGapClick: ((Int) -> Unit)? = null,
     matchingProjection: MatchingInlineProjection? = null,
     sourceDocuments: List<AnnotationDocument> = emptyList(),
-    projection: AnnotationProjection? = null, fillWidth: Boolean = true) {
+    projection: AnnotationProjection? = null, fillWidth: Boolean = true,
+    playbackRange: IntRange? = null, onPlaybackBounds: (Pair<Int, Int>?) -> Unit = {},
+    onUserInteraction: () -> Unit = {}, playbackAnchor: IntRange? = playbackRange) {
     val annotations = LocalAnnotations.current
     val annotationDocuments = sourceDocuments.ifEmpty { listOf(document) + otherDocuments }
     require(matchingProjection == null || annotationDocuments.all { it.text == matchingProjection.source }) {
@@ -129,13 +131,50 @@ fun AnnotatableText(document: AnnotationDocument, modifier: Modifier = Modifier,
             view.gapForeground = foregroundColor
             view.gapOutline = outlineColor
             view.render(document.text, ranges, inlineGaps)
+            view.onUserInteraction = onUserInteraction
+            view.onPlaybackBounds = onPlaybackBounds
+            view.setPlaybackRange(playbackRange, outlineColor, playbackAnchor)
         })
 }
 
 private class PermanentBackground : BackgroundColorSpan(0xFFFFE29A.toInt())
 private class PermanentForeground : ForegroundColorSpan(0xFF29230E.toInt())
+private class PlaybackForeground(color: Int) : ForegroundColorSpan(color)
 
 open class SelectableAnnotationTextView(context: Context) : TextView(context) {
+    var onUserInteraction: (() -> Unit)? = null
+    var onPlaybackBounds: (Pair<Int, Int>?) -> Unit = {}
+    private var playbackRange: IntRange? = null
+    private var playbackAnchor: IntRange? = null
+    private var playbackColor: Int? = null
+
+    fun setPlaybackRange(range: IntRange?, color: Int, anchor: IntRange? = range) {
+        val valid = range?.takeIf { !it.isEmpty() && it.first >= 0 && it.last < text.length }
+        val spans = text as? Spannable
+        if (valid != playbackRange || color != playbackColor || valid != null &&
+            spans?.getSpans(0, spans.length, PlaybackForeground::class.java)?.isEmpty() == true) {
+            spans?.getSpans(0, spans.length, PlaybackForeground::class.java)?.forEach(spans::removeSpan)
+            if (valid != null) spans?.setSpan(PlaybackForeground(color), valid.first, valid.last + 1, Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+            playbackRange = valid
+            playbackColor = color
+            invalidate()
+        }
+        playbackAnchor = anchor?.takeIf { !it.isEmpty() && it.first >= 0 && it.last < text.length }
+        reportPlaybackBounds()
+    }
+
+    private fun reportPlaybackBounds() {
+        val range = playbackAnchor
+        val lines = layout
+        onPlaybackBounds(if (range == null || lines == null || lines.text.length != text.length || isLayoutRequested) null else
+            totalPaddingTop + lines.getLineTop(lines.getLineForOffset(range.first)) to
+                totalPaddingTop + lines.getLineBottom(lines.getLineForOffset(range.last)))
+    }
+
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        super.onLayout(changed, left, top, right, bottom)
+        post { reportPlaybackBounds() }
+    }
     var canAnnotate = false
     var onMark: (Int, Int, Boolean) -> Unit = { _, _, _ -> }
     var onTap: (() -> Unit)? = null
@@ -163,6 +202,7 @@ open class SelectableAnnotationTextView(context: Context) : TextView(context) {
         setBackgroundColor(android.graphics.Color.TRANSPARENT)
         customSelectionActionModeCallback = object : ActionMode.Callback {
             override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
+                onUserInteraction?.invoke()
                 actionMode = mode
                 menu.clear()
                 menu.add(0, android.R.id.copy, 0, "复制").setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM)
@@ -196,6 +236,7 @@ open class SelectableAnnotationTextView(context: Context) : TextView(context) {
     }
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            onUserInteraction?.invoke()
             blockActionMode?.finish()
             wasSelectingAtDown = actionMode != null
             moved = false

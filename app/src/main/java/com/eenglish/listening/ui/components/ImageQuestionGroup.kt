@@ -143,7 +143,7 @@ private fun AnswerCell(
                 onSelect = onSelect,
             )
         }
-        if (submitted) {
+        if (submitted && LocalQuestionReview.current == null) {
             val isCorrect = selected.isNotBlank() && Grader.withinLimit(question, selected) &&
                 question.acceptableAnswers.any { Grader.normalize(it) == Grader.normalize(selected) }
             Text("你的答案：${selected.ifBlank { "未作答" }}",
@@ -166,6 +166,10 @@ private fun ImageAnswerInput(
     onActivate: (Int) -> Unit,
     onSelect: (String) -> Unit,
 ) {
+    if (LocalQuestionReview.current != null) {
+        ReviewAnswerToken(question, selected, modifier)
+        return
+    }
     var draft by rememberSaveable(LocalAnswerSession.current, question.id) { mutableStateOf(selected) }
     var focused by remember(question.id) { mutableStateOf(false) }
     LaunchedEffect(selected, editable) {

@@ -30,6 +30,7 @@ fun SharedMatchingGroupView(
     onSelect: (String, String) -> Unit,
 ) {
     val matchingSheetHeight = rememberMatchingSheetHeight(group.questions.map { it.id })
+    if (submitted) ReviewQuestionStrip(group.questions)
     val first = group.questions.first()
     val promptDocuments = remember(group.questions, group.prompt) {
         group.questions.map { question ->
@@ -283,6 +284,7 @@ private fun MatchingAnswerButton(
 
 @Composable
 private fun MatchingAnswerStatus(question: Question, answer: String) {
+    if (LocalQuestionReview.current != null) return
     val correct = submittedAnswerCorrect(question, answer, submitted = true) == true
     Text(
         "Q${question.number} 你的答案：${answer.ifBlank { "未作答" }} · 标准答案：${question.acceptableAnswers.joinToString(" / ")}",

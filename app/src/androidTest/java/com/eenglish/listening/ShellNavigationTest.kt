@@ -113,6 +113,27 @@ class ShellNavigationTest {
         assertEquals(practicePosition, practiceOffset(), 0.01f)
     }
 
+    @Test fun realMp3SeekAndPlaybackLocateTheBoundTranscriptParagraph() {
+        openPractice()
+        val timeline = requireNotNull(vm.uiState.value.transcriptTimeline)
+        assertTrue(timeline.matches(requireNotNull(vm.uiState.value.part)))
+        val index = timeline.segments.indices.filter { timeline.segments[it] != null }[8]
+        val target = timeline.segments[index]!!.startMs + 100
+        openTranscript()
+        compose.waitUntil(10000) { vm.audio.state.value.ready }
+        compose.onNodeWithTag("audio-seek").performSemanticsAction(SemanticsActions.SetProgress) { it(target.toFloat()) }
+        compose.waitUntil(10000) { kotlin.math.abs(vm.audio.state.value.positionMs - target) < 500 }
+        compose.onNodeWithTag("transcript-follow-bar").assert(
+            SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "播放段落:$index"))
+        compose.onNodeWithTag("audio-toggle").performClick()
+        compose.waitUntil(10000) { vm.audio.state.value.isPlaying && vm.audio.state.value.positionMs > target }
+        compose.onNodeWithTag("audio-toggle").performClick()
+        val app = compose.activity.application as TestListeningApplication
+        assertEquals(vm.uiState.value.answers, runBlocking(Dispatchers.IO) {
+            app.practices.all().single { it.session.id == vm.uiState.value.attempt!!.session.id }.selectedAnswers
+        })
+    }
+
     @Test fun newAttemptStartsWithFreshPagePositions() {
         openPractice()
         compose.onNodeWithTag("practice-list").performScrollToNode(hasTestTag("question-28"))
@@ -810,12 +831,13 @@ class ShellNavigationTest {
         val question = vm.uiState.value.questions.single { it.number == number }
         val correct = question.options.single { it.id == question.correctAnswer }
         val userOption = question.options.single { it.id == selected }
-        compose.onNodeWithTag("transcript-question-summary").assertTextEquals("Q.$number · 已选 $selected")
-        compose.onNodeWithText("已提交 · 只读").assertExists()
+        compose.onNodeWithTag("transcript-question-summary").assertTextEquals("Q$number · 回答错误")
+        compose.onNodeWithTag("transcript-review-question-tab").assertIsSelected()
         question.options.forEach { compose.onNodeWithTag("option-$number-${it.id}").assertIsNotEnabled() }
-        compose.onNodeWithText("你的答案：${userOption.id}. ${userOption.text}").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithTag("result-$number").performScrollTo().assertIsDisplayed()
-            .assertTextEquals("标准答案：${correct.id}. ${correct.text}")
+        compose.onNodeWithTag("transcript-review-answer-tab").performClick()
+        compose.onNodeWithTag("review-user-answer").performScrollTo().assertTextEquals("${userOption.id} — ${userOption.text}")
+        compose.onNodeWithTag("review-standard-answer").performScrollTo().assertTextEquals("${correct.id} — ${correct.text}")
+        compose.onNodeWithTag("transcript-review-question-tab").performClick()
     }
 
     @Test fun handleContinuouslyResizesWithoutSnappingAndRespectsBounds() {

@@ -125,7 +125,9 @@ fun ListeningApp(shellViewModel: ShellViewModel = viewModel(), practiceViewModel
                 onNew = practiceViewModel::newPractice,
                 onHistory = practiceViewModel::viewHistory,
                 onBack = navigateUp,
+                onReviewTranscript = { transcriptPageState.questionNumber.intValue = it },
                 onViewTranscript = {
+                    if (practice.submitted) transcriptPageState.reviewAnswers.value = false
                     navController.navigate(AppDestination.TRANSCRIPT.route) { launchSingleTop = true }
                 },
             )

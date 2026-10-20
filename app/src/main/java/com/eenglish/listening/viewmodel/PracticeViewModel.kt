@@ -29,6 +29,7 @@ data class PracticeUiState(
     val part: ListeningPart? = null,
     val questionLayout: QuestionLayoutDocument? = null,
     val questionLayoutV4: JsonObject? = null,
+    val transcriptTimeline: TranscriptTimeline? = null,
     val attempt: PracticeAttempt? = null,
     val history: List<PracticeAttempt> = emptyList(),
     val answers: Map<String, String> = emptyMap(),
@@ -83,8 +84,9 @@ class PracticeViewModel(application: Application, private val savedStateHandle: 
                 val part = selected?.let { app.parts.loadPart(it.id) }
                 val questionLayout = part?.let { app.parts.loadLayout(it) }
                 val questionLayoutV4 = part?.let { app.parts.loadLayoutV4(it) }
+                val transcriptTimeline = part?.let { app.parts.loadTranscriptTimeline(it) }
                 mutableState.update { it.copy(parts = parts, part = part, questionLayout = questionLayout,
-                    questionLayoutV4 = questionLayoutV4) }
+                    questionLayoutV4 = questionLayoutV4, transcriptTimeline = transcriptTimeline) }
                 part?.let { audio.load(app.parts.audioPath(it)) }
                 repository.observeAll().collect { attempts -> reconcile(attempts) }
             } catch (cancelled: CancellationException) { throw cancelled }
@@ -117,13 +119,14 @@ class PracticeViewModel(application: Application, private val savedStateHandle: 
         queuedInline.clear()
         submitAfterSave = false
         mutableState.update { it.copy(part = null, attempt = null, answers = emptyMap(),
-            questionLayout = null, questionLayoutV4 = null, inlineDrafts = emptyMap(), loading = true, confirmMissing = null) }
+            questionLayout = null, questionLayoutV4 = null, transcriptTimeline = null, inlineDrafts = emptyMap(), loading = true, confirmMissing = null) }
         enqueue {
             val part = app.parts.loadPart(partId)
             val questionLayout = app.parts.loadLayout(part)
             val questionLayoutV4 = app.parts.loadLayoutV4(part)
+            val transcriptTimeline = app.parts.loadTranscriptTimeline(part)
             mutableState.update { it.copy(part = part, questionLayout = questionLayout,
-                questionLayoutV4 = questionLayoutV4) }
+                questionLayoutV4 = questionLayoutV4, transcriptTimeline = transcriptTimeline) }
             audio.load(app.parts.audioPath(part))
             savedStateHandle[SESSION_KEY] = repository.resumeOrCreate(part)
         }
@@ -154,8 +157,9 @@ class PracticeViewModel(application: Application, private val savedStateHandle: 
             val parts = app.parts.loadParts()
             val questionLayout = currentPart?.let { app.parts.loadLayout(it) }
             val questionLayoutV4 = currentPart?.let { app.parts.loadLayoutV4(it) }
+            val transcriptTimeline = currentPart?.let { app.parts.loadTranscriptTimeline(it) }
             mutableState.update { it.copy(parts = parts, questionLayout = questionLayout,
-                questionLayoutV4 = questionLayoutV4) }
+                questionLayoutV4 = questionLayoutV4, transcriptTimeline = transcriptTimeline) }
         }
     }
     fun dismissBatchImport() {

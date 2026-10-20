@@ -77,6 +77,7 @@ fun SharedMultipleChoiceGroupView(
 
     Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)
         .testTag("shared-multiple-choice-${first.number}")) {
+        if (submitted) ReviewQuestionStrip(group.questions)
         AnnotatableText(promptDocument, otherDocuments = otherPromptDocuments,
             activeDocument = promptDocument, viewTag = "shared-multiple-choice-prompt-${first.number}")
         if (isAdditionalSharedText(group.instructions, group.prompt, group.context)) {
@@ -126,7 +127,7 @@ fun SharedMultipleChoiceGroupView(
                 if (index < group.options.lastIndex) HorizontalDivider()
             }
         }
-        if (submitted) {
+        if (submitted && LocalQuestionReview.current == null) {
             Text("你的选择：${selected.takeIf { it.isNotEmpty() }?.sorted()?.joinToString("、") ?: "未作答"}",
                 style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 8.dp))
             group.questions.forEach { question ->

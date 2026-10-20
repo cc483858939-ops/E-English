@@ -37,6 +37,20 @@ import com.eenglish.listening.domain.grading.Grader
  * This is one native layout, not a dialog, detached input or absolute screen overlay.
  */
 class NativeInlineGapFillView(context: Context) : FrameLayout(context) {
+    private var reviewClick: ((String) -> Unit)? = null
+    internal fun showReview(review: ReviewInteraction?) {
+        reviewClick = review?.select
+        editors.forEach { editor ->
+            val item = review?.forQuestion(editor.id)
+            editor.box.isClickable = item != null || enabledForEdit
+            editor.input.setTextColor(when (item?.status) {
+                com.eenglish.listening.domain.grading.ReviewStatus.CORRECT -> 0xFF287847.toInt()
+                com.eenglish.listening.domain.grading.ReviewStatus.INCORRECT -> 0xFFB3261E.toInt()
+                else -> 0xFF22222A.toInt()
+            })
+            editor.box.contentDescription = item?.let { "Q${editor.number}，${it.status.label}" }
+        }
+    }
     internal var onRequestEditorVisibility: ((Rect) -> Unit)? = null
     private val density = resources.displayMetrics.density
     private val touchTargetHeight = (48f * density).toInt()
@@ -135,7 +149,8 @@ class NativeInlineGapFillView(context: Context) : FrameLayout(context) {
         row.addView(label, LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
         row.addView(input, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         row.setOnClickListener {
-            if (enabledForEdit) {
+            if (reviewClick != null) reviewClick?.invoke(id)
+            else if (enabledForEdit) {
                 val alreadyFocused = input.hasFocus()
                 input.requestFocus()
                 val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager

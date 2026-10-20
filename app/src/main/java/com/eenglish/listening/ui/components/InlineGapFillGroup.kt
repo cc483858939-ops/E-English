@@ -59,7 +59,7 @@ fun InlineGapFillGroup(group: GapFillGroup, answers: Map<String, String>,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        if (submitted) {
+        if (submitted && LocalQuestionReview.current == null) {
             HorizontalDivider()
             group.questions.forEach { q ->
                 val answer = answers[q.id].orEmpty()

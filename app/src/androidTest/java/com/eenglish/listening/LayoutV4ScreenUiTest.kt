@@ -140,13 +140,12 @@ class LayoutV4ScreenUiTest {
         compose.onNodeWithTag("v4-image-card-close").performClick()
         compose.onNodeWithTag("practice-submit").performClick()
         compose.onNodeWithTag("grade-summary").assertExists()
-        val resultText = compose.onNodeWithTag("v4-result-11").fetchSemanticsNode()
-            .config[SemanticsProperties.Text].joinToString(" ") { it.text }
-        assertTrue("Submitted V4 fill result must include its answer and correctness: $resultText",
-            resultText.contains("answer11") && resultText.contains("正确"))
+        compose.onNodeWithTag("review-status").assertTextEquals("回答正确")
+        compose.onNodeWithTag("review-standard-answer").assertTextEquals("answer11")
+        compose.onNodeWithTag("v4-result-11").assertDoesNotExist()
         compose.onNodeWithTag("v4-image-canvas-image-diagram").performTouchInput { click(center) }
-        compose.onNodeWithTag("v4-image-card-input-11").assertIsNotEnabled()
-            .assertTextContains("answer11", substring = true)
+        compose.onNodeWithTag("v4-image-card-input-11").assertDoesNotExist()
+        compose.onNodeWithTag("review-standard-answer").assertTextEquals("answer11")
         Espresso.pressBack()
         compose.onNodeWithTag("v4-image-answer-card").assertDoesNotExist()
         compose.onNodeWithTag("practice-header").assertExists()

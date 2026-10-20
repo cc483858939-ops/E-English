@@ -23,6 +23,8 @@ import com.eenglish.listening.audio.AudioState
 import com.eenglish.listening.ui.components.*
 import com.eenglish.listening.viewmodel.PracticeUiState
 import com.eenglish.listening.domain.grading.Grade
+import com.eenglish.listening.domain.grading.questionReviews
+import kotlinx.coroutines.launch
 import com.eenglish.listening.domain.layout.LayoutV4AnswerStatus
 import com.eenglish.listening.domain.model.SessionStatus
 import com.eenglish.listening.domain.gapfill.QuestionLayoutDisplayParser
@@ -45,7 +47,7 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
     onInlineCommit: (String) -> Unit = {}, onFlushInline: () -> Unit = {},
     listState: LazyListState = key(state.part?.id, state.attempt?.session?.id, state.submitted) {
         rememberLazyListState()
-    }) {
+    }, onReviewTranscript: (Int) -> Unit = {}) {
     val imeVisible = rememberImeVisible()
     var activeQuestionNumber by remember { mutableStateOf<Int?>(null) }
     val displayItems = remember(state.questions, state.questionLayout) {
@@ -54,9 +56,33 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
     val v4Groups = remember(state.questionLayoutV4) {
         state.questionLayoutV4?.get("groups")?.jsonArray?.mapNotNull { it as? JsonObject }.orEmpty()
     }
-    var activeImageGroupId by rememberSaveable(state.part?.id) { mutableStateOf<String?>(null) }
-    var activeImageQuestionIndex by rememberSaveable(state.part?.id) { mutableIntStateOf(0) }
-    var imageCardRatio by rememberSaveable(state.part?.id) { mutableFloatStateOf(0.55f) }
+    val reviews = remember(state.questions, state.answers, state.submitted) {
+        if (state.submitted) questionReviews(state.questions, state.answers) else emptyList()
+    }
+    var reviewId by rememberSaveable(state.attempt?.session?.id) { mutableStateOf<String?>(null) }
+    val currentReviewId = reviewId?.takeIf { id -> reviews.any { it.id == id } } ?: reviews.firstOrNull()?.id
+    val reviewScope = rememberCoroutineScope()
+    val selectReview: (String) -> Unit = { id ->
+        reviewId = id
+        val item = reviews.firstOrNull { it.id == id }
+        if (item != null) reviewScope.launch {
+            val groupIndex = v4Groups.indexOfFirst { group -> group["questionIds"]?.jsonArray.orEmpty().any { it.jsonPrimitive.content in item.questionIds } }
+            val legacyIndex = displayItems.indexOfFirst { entry -> when (entry) {
+                is QuestionDisplayItem.Single -> entry.question.id in item.questionIds
+                is QuestionDisplayItem.InlineGroup -> entry.group.questions.any { it.id in item.questionIds }
+                is QuestionDisplayItem.StructuredLayout -> entry.questions.any { it.id in item.questionIds }
+                is QuestionDisplayItem.ImageGroup -> entry.group.questions.any { it.id in item.questionIds }
+                is QuestionDisplayItem.SharedMatching -> entry.group.questions.any { it.id in item.questionIds }
+                is QuestionDisplayItem.SharedMultipleChoice -> entry.group.questions.any { it.id in item.questionIds }
+                is QuestionDisplayItem.SharedTextFallback -> entry.group.questions.any { it.id in item.questionIds }
+            } }
+            val target = if (state.questionLayoutV4 != null) groupIndex else legacyIndex
+            if (target >= 0) listState.scrollToItem(target + 1)
+        }
+    }
+    var activeImageGroupId by rememberSaveable(state.part?.id, state.attempt?.session?.id) { mutableStateOf<String?>(null) }
+    var activeImageQuestionIndex by rememberSaveable(state.part?.id, state.attempt?.session?.id) { mutableIntStateOf(0) }
+    var imageCardRatio by rememberSaveable(state.part?.id, state.attempt?.session?.id) { mutableFloatStateOf(0.55f) }
     val activeImageGroup = v4Groups.firstOrNull {
         it["groupId"]?.jsonPrimitive?.contentOrNull == activeImageGroupId && hasV4QuestionImage(it)
     }
@@ -83,7 +109,14 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
             imageImeScrollAnchor = null
         }
     }
-    BackHandler(enabled = activeImageGroup != null) {
+    LaunchedEffect(currentReviewId, state.submitted) {
+        if (state.submitted && currentReviewId != null) {
+            val item = reviews.firstOrNull { it.id == currentReviewId }
+            val group = v4Groups.firstOrNull { group -> group["questionIds"]?.jsonArray.orEmpty().any { it.jsonPrimitive.content in item?.questionIds.orEmpty() } }
+            activeImageGroupId = group?.takeIf(::hasV4QuestionImage)?.get("groupId")?.jsonPrimitive?.contentOrNull
+        }
+    }
+    BackHandler(enabled = !state.submitted && activeImageGroup != null) {
         onFlushInline()
         activeImageGroupId = null
     }
@@ -99,8 +132,13 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
             .testTag("practice-header"), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = { onFlushInline(); onBack() }) { Text("返回") }
-            Text("听力答题", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-            TextButton(onClick = { onFlushInline(); onViewTranscript() }, enabled = state.part != null) { Text("查看原文") }
+            Text(if (state.submitted) "听力复盘" else "听力答题", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            TextButton(onClick = {
+                onFlushInline()
+                if (state.submitted) reviews.firstOrNull { it.id == currentReviewId }?.questions?.firstOrNull()
+                    ?.let { onReviewTranscript(it.number) }
+                onViewTranscript()
+            }, enabled = state.part != null) { Text("查看原文") }
         }
     }, bottomBar = {
         if (!imeVisible) {
@@ -113,6 +151,7 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
             }
         }
     }) { insets ->
+        CompositionLocalProvider(LocalQuestionReview provides currentReviewId?.let { ReviewInteraction(reviews, it, selectReview) }) {
         Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets).imePadding()) {
             if (state.part != null) {
                 Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
@@ -120,6 +159,13 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
                     AudioControls(audio, onToggle, onSeek, compact = true, onSeekBy = onSeekBy, onSpeed = onSpeed,
                         singleRow = imeVisible && !state.submitted && state.attempt != null)
                 }
+            }
+            if (state.submitted) {
+                val session = requireNotNull(state.attempt).session
+                val grade = Grade(requireNotNull(session.correctCount), session.totalCount)
+                Text("正确 ${grade.correctCount} / ${grade.totalCount} · 错误 ${grade.wrongCount} · 正确率 ${grade.accuracy}%",
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp).testTag("grade-summary"))
             }
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
                 val availableHeightPx = with(LocalDensity.current) { maxHeight.toPx() }
@@ -146,16 +192,7 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
                                 }
                                 state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                                 if (state.submitted) {
-                                    val session = requireNotNull(state.attempt).session
-                                    val grade = Grade(requireNotNull(session.correctCount), session.totalCount)
-                                    Card(Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
-                                        Column(Modifier.padding(16.dp)) {
-                                            Text("练习成绩", style = MaterialTheme.typography.titleLarge)
-                                            Text("正确 ${grade.correctCount} / ${grade.totalCount} · 错误 ${grade.wrongCount} · 正确率 ${grade.accuracy}%",
-                                                modifier = Modifier.testTag("grade-summary"))
-                                            Text("已提交的尝试不可修改", style = MaterialTheme.typography.labelMedium)
-                                        }
-                                    }
+                                    Text("已提交 · 点击答案或题号逐题复盘", style = MaterialTheme.typography.labelMedium)
                                 } else {
                                     val missing = LayoutV4AnswerStatus.missingCount(
                                         state.questions, state.questionLayoutV4, state.answers)
@@ -183,6 +220,9 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
                                         imageAnswerCardCompact = compactImageCard &&
                                             group["groupId"]?.jsonPrimitive?.contentOrNull == activeImageGroupId,
                                         onImageTap = {
+                                            if (state.submitted) groupQuestions.firstOrNull()?.let { question ->
+                                                reviews.firstOrNull { question.id in it.questionIds }?.let { selectReview(it.id) }
+                                            }
                                             val groupId = group["groupId"]?.jsonPrimitive?.contentOrNull
                                             if (groupId != activeImageGroupId) activeImageQuestionIndex = 0
                                             activeImageGroupId = groupId
@@ -257,7 +297,14 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
                             }
                         } else item { Text("暂无已导入试题") }
                     }
-                    if (activeImageGroup != null && imageCardQuestions.isNotEmpty()) {
+                    if (state.submitted && currentReviewId != null) {
+                        key(state.attempt?.session?.id) {
+                        QuestionReviewCard(reviews, currentReviewId, selectReview,
+                            onResize = { delta -> if (availableHeightPx > 0f) imageCardRatio =
+                                (imageCardRatio - delta / availableHeightPx).coerceIn(0.3f, 0.8f) },
+                            modifier = Modifier.height(cardHeight))
+                        }
+                    } else if (activeImageGroup != null && imageCardQuestions.isNotEmpty()) {
                         LayoutV4ImageAnswerCard(
                             group = activeImageGroup,
                             questions = imageCardQuestions,
@@ -286,6 +333,7 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
                     }
                 }
             }
+        }
         }
     }
 }

@@ -63,7 +63,7 @@ fun StructuredLayoutGroup(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        if (submitted) {
+        if (submitted && LocalQuestionReview.current == null) {
             HorizontalDivider()
             questions.forEach { question ->
                 val answer = answers[question.id].orEmpty()

@@ -52,6 +52,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.eenglish.listening.domain.annotation.AnnotationProjection
 import com.eenglish.listening.domain.layout.V4AnnotationSources
+import com.eenglish.listening.domain.layout.V4FillNumbering
+import com.eenglish.listening.domain.layout.fillNumberLabel
 import com.eenglish.listening.domain.grading.Grader
 import com.eenglish.listening.domain.model.Option
 import com.eenglish.listening.domain.model.Question
@@ -228,7 +230,8 @@ fun LayoutV4GroupView(
                 V4ImageAnswerList(group, context) { questionId -> activeImageFillQuestionId = questionId }
             }
         }
-        if (submitted) {
+        if (submitted) ReviewQuestionStrip(questions)
+        if (submitted && LocalQuestionReview.current == null) {
             questions.forEach { question ->
                 val selected = answers[question.id].orEmpty()
                 val isCorrect = when (question.type) {
@@ -288,7 +291,9 @@ private data class V4RenderContext(
     val imageAnswerCardCompact: Boolean,
     val onImageTap: () -> Unit,
     val beforeImageZoom: () -> Unit,
-)
+) {
+    val hiddenPrefixes = V4FillNumbering.hiddenPrefixes(group, questionById)
+}
 
 @Composable
 private fun V4BlockView(block: JsonObject, context: V4RenderContext, depth: Int, numberedOrdinal: Int? = null) {
@@ -315,7 +320,9 @@ private fun V4BlockView(block: JsonObject, context: V4RenderContext, depth: Int,
             }
         }
         "listItem" -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            val marker = v4ListMarkerLabel(block.v4String("marker"), hasExplicitNumberPrefix(block), numberedOrdinal)
+            val hiddenNumber = block.v4Array("children").any { it.jsonObject.v4String("id") in context.hiddenPrefixes }
+            val marker = if (hiddenNumber && block.v4String("marker") == "numbered") ""
+                else v4ListMarkerLabel(block.v4String("marker"), hasExplicitNumberPrefix(block), numberedOrdinal)
             if (marker.isNotEmpty()) {
                 Text(marker, modifier = Modifier.alignByBaseline().testTag("v4-list-marker-${block.v4String("id")}"))
             }
@@ -405,8 +412,10 @@ private fun InlineFillTextLayout(
         MaterialTheme.typography.bodyLarge.copy(fontSize = 18.sp, lineHeight = 28.sp))
 }
 
-private fun blockProjection(block: JsonObject, context: V4RenderContext): AnnotationProjection =
-    V4AnnotationSources.block(context.group.v4String("groupId"), block, context.questionById)
+private fun blockProjection(block: JsonObject, context: V4RenderContext): AnnotationProjection {
+    val original = V4AnnotationSources.block(context.group.v4String("groupId"), block, context.questionById)
+    return original.slice(context.hiddenPrefixes[block.v4String("id")] ?: 0, original.text.length)
+}
 
 @Composable
 private fun V4Table(block: JsonObject, context: V4RenderContext, depth: Int) {
@@ -463,6 +472,12 @@ private fun V4SlotControl(slot: JsonObject, context: V4RenderContext) {
     val index = slot.v4Int("slotIndex")
     val answer = context.answers[questionId].orEmpty()
     val parts = splitForLayout(question, response, answer)
+    if (context.submitted && LocalQuestionReview.current != null) {
+        ReviewAnswerToken(question, if (slot.v4String("kind") == "fill") parts.getOrElse(index) { "" } else answer,
+            Modifier.widthIn(max = 220.dp), numberLabel = fillNumberLabel(question.number, index, slotCount(questionId, context)),
+            singleLine = context.inlineTextFill)
+        return
+    }
     when (slot.v4String("kind")) {
         "fill" -> {
             if (!context.inlineTextFill) {
@@ -477,7 +492,7 @@ private fun V4SlotControl(slot: JsonObject, context: V4RenderContext) {
                         }
                     },
                     enabled = context.editable && !context.submitted,
-                    label = { Text("Q${question.number}${if (slotCount(questionId, context) > 1) " · 空${index + 1}" else ""}") },
+                    prefix = { Text(fillNumberLabel(question.number, index, slotCount(questionId, context))) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions.Default,
                     modifier = Modifier.widthIn(min = 132.dp, max = 220.dp).heightIn(min = 54.dp)
@@ -511,7 +526,7 @@ private fun V4SlotControl(slot: JsonObject, context: V4RenderContext) {
                 cursorBrush = SolidColor(colors.primary),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { context.onCommit(questionId) }),
-                modifier = Modifier.width(112.dp).height(48.dp)
+                modifier = Modifier.width(V4InlineAnswerWidth).height(48.dp)
                     .onFocusChanged { state ->
                         if (state.isFocused) {
                             focused = true
@@ -525,17 +540,16 @@ private fun V4SlotControl(slot: JsonObject, context: V4RenderContext) {
                     .semantics { contentDescription = "Q${question.number} 答案${if (slotCount(questionId, context) > 1) "第${index + 1}空" else ""}" },
                 decorationBox = { innerTextField ->
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Box(Modifier.fillMaxWidth().height(40.dp)
-                            .background(colors.surface, shape)
+                        Row(Modifier.fillMaxWidth().height(40.dp)
+                            .background(if (parts.getOrElse(index) { "" }.isEmpty()) colors.primaryContainer.copy(alpha = 0.35f) else colors.surface, shape)
                             .border(if (focused) 2.dp else 1.dp,
                                 if (focused) colors.primary else colors.outline, shape)
-                            .padding(horizontal = 10.dp), contentAlignment = Alignment.CenterStart) {
-                            if (parts.getOrElse(index) { "" }.isEmpty()) {
-                                Text(if (slotCount(questionId, context) > 1) "${question.number}.${index + 1}" else "${question.number}",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = colors.onSurfaceVariant)
-                            }
-                            innerTextField()
+                            .padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(fillNumberLabel(question.number, index, slotCount(questionId, context)),
+                                style = MaterialTheme.typography.bodyLarge, color = colors.primary, maxLines = 1,
+                                modifier = Modifier.testTag("v4-input-number-${question.number}-${index + 1}"))
+                            Spacer(Modifier.width(6.dp))
+                            Box(Modifier.weight(1f)) { innerTextField() }
                         }
                     }
                 },
@@ -604,16 +618,16 @@ private fun V4ImageAnswerList(
                 verticalAlignment = Alignment.Top,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(question.number.toString(), style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.widthIn(min = 48.dp).semantics {
-                        contentDescription = "题号 ${question.number}"
-                    })
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     row.slots.forEachIndexed { slotOrdinal, slot ->
                         val slotId = slot.v4String("slotId")
                         val slotIndex = slot.v4Int("slotIndex")
                         val targetIndex = focusIndexBySlotId[slotId] ?: return@forEachIndexed
                         val value = answerParts.getOrElse(slotIndex) { "" }
+                        if (context.submitted && LocalQuestionReview.current != null) {
+                            ReviewAnswerToken(question, value, Modifier.fillMaxWidth(),
+                                numberLabel = fillNumberLabel(question.number, slotIndex, row.slots.size))
+                        } else {
                         val singleSlot = row.slots.size == 1
                         var hadFocus by remember(question.id, slotId) { mutableStateOf(false) }
                         val tag = if (singleSlot) "v4-image-list-input-${question.number}"
@@ -630,6 +644,7 @@ private fun V4ImageAnswerList(
                                 }
                             },
                             enabled = context.editable && !context.submitted,
+                            prefix = { Text(fillNumberLabel(question.number, slotIndex, row.slots.size)) },
                             modifier = Modifier.fillMaxWidth().focusRequester(focusRequesters[targetIndex])
                                 .onFocusChanged { state ->
                                     if (state.isFocused) {
@@ -670,6 +685,7 @@ private fun V4ImageAnswerList(
                             ),
                         )
                         if (slotOrdinal < row.slots.lastIndex) Spacer(Modifier.height(2.dp))
+                        }
                     }
                 }
             }
@@ -720,7 +736,9 @@ private fun V4SharedTextMatchingGroup(
             Column(Modifier.fillMaxWidth().testTag("v4-letter-match-row-${question.number}"),
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 V4BlockView(row.prompt, context, depth = 1)
-                if (options.size <= 4) {
+                if (context.submitted && LocalQuestionReview.current != null) {
+                    ReviewAnswerToken(question, context.answers[question.id].orEmpty(), Modifier.fillMaxWidth())
+                } else if (options.size <= 4) {
                     Row(Modifier.fillMaxWidth().testTag("v4-letter-match-buttons-${question.number}"),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         options.forEach { option ->
@@ -877,7 +895,8 @@ private fun V4ImageBlock(block: JsonObject, context: V4RenderContext) {
             bringIntoView.bringIntoView()
         }
     }
-    LaunchedEffect(context.imageAnswerCardActive, image) {
+    val reviewId = LocalQuestionReview.current?.activeId
+    LaunchedEffect(context.imageAnswerCardActive, image, reviewId) {
         if (context.imageAnswerCardActive && image != null) {
             withFrameNanos { }
             bringIntoView.bringIntoView()
@@ -904,7 +923,7 @@ private fun V4ImageBlock(block: JsonObject, context: V4RenderContext) {
             zoomable = false, canvasTag = "v4-image-canvas-$imageId",
             targetTagPrefix = "v4-hotspot-target", onBlankTap = onMainImageTap,
             drawOverlays = drawOverlays, hitTestOverlays = hitTestOverlays)
-        Text(if (context.imageAnswerCardOverview) "点击图片打开答题卡" else if (context.imageFillAnswerList) "点击图片放大" else "点击图片中的空位作答；点图片空白处可放大",
+        Text(if (context.imageAnswerCardOverview) "点击图片打开答题卡" else if (context.submitted) "点击图片空白处可放大" else if (context.imageFillAnswerList) "点击图片放大" else "点击图片中的空位作答；点图片空白处可放大",
             style = MaterialTheme.typography.labelSmall)
         if (context.imageAnswerCardOverview) {
             TextButton(onClick = { zoom = true }, modifier = Modifier.testTag("v4-image-zoom-$imageId")) {

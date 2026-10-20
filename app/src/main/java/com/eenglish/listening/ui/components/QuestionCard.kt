@@ -36,7 +36,9 @@ fun QuestionCard(question: Question, selected: String?, editable: Boolean, showR
             Text("Questions ${question.groupNumbers.joinToString(", ")} · 选择 ${question.groupNumbers.size} 项，顺序不限；每项计 1 分",
                 style = MaterialTheme.typography.labelMedium)
         }
-        if (question.isTextInput) {
+        if (showResult && LocalQuestionReview.current != null) {
+            ReviewAnswerToken(question, selected.orEmpty())
+        } else if (question.isTextInput) {
             if (question.answerSeparator != null) {
                 PairedAnswerFields(question, selected, editable, onSelect)
             } else {
@@ -77,7 +79,7 @@ fun QuestionCard(question: Question, selected: String?, editable: Boolean, showR
                     onTap = if (canSelect) choose else null)
             }
         }
-        if (showResult) {
+        if (showResult && LocalQuestionReview.current == null) {
             val chosen = question.options.find { it.id == selected }
             val correct = question.options.find { it.id == question.correctAnswer }
             val isCorrect = if (multiple) question.correctAnswer in choices else !selected.isNullOrBlank() &&

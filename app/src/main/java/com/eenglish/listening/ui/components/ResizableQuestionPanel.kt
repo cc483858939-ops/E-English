@@ -28,6 +28,7 @@ import com.eenglish.listening.domain.gapfill.SharedMatchingQuestionGroup
 import com.eenglish.listening.domain.gapfill.SharedMultipleChoiceQuestionGroup
 import com.eenglish.listening.domain.gapfill.SharedTextFallbackQuestionGroup
 import kotlin.math.roundToInt
+import com.eenglish.listening.domain.grading.QuestionReview
 
 @Composable
 fun ResizableQuestionPanel(question: Question, selected: String?, expanded: Boolean, panelHeight: Dp,
@@ -48,7 +49,9 @@ fun ResizableQuestionPanel(question: Question, selected: String?, expanded: Bool
     dirty: Boolean = false,
     onGroupSelect: (String, String) -> Unit = { _, _ -> },
     onGroupEdit: (String, String) -> Unit = onGroupSelect,
-    onGroupCommit: (String) -> Unit = {}, onActivate: (Int) -> Unit = {}, compact: Boolean = false) {
+    onGroupCommit: (String) -> Unit = {}, onActivate: (Int) -> Unit = {}, compact: Boolean = false,
+    reviewItem: QuestionReview? = null, reviewAnswers: Boolean = false,
+    onReviewAnswers: (Boolean) -> Unit = {}, reviewScroll: ScrollState = questionScroll) {
     val navigation: @Composable () -> Unit = {
         Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             TextButton(onClick = onPrevious, enabled = hasPrevious,
@@ -58,16 +61,19 @@ fun ResizableQuestionPanel(question: Question, selected: String?, expanded: Bool
                 modifier = Modifier.testTag("transcript-next")) { Text("下一题") }
         }
     }
-    val chromeHeight = headerHeight + 1.dp + if (fixedNavigation && !compact) 48.dp else 0.dp
+    val reviewTabsHeight = if (reviewItem != null) 48.dp else 0.dp
+    val chromeHeight = headerHeight + 1.dp + reviewTabsHeight + if (fixedNavigation && !compact) 48.dp else 0.dp
     val questionHeight = (panelHeight - chromeHeight).coerceAtLeast(1.dp)
     // This viewport grows with the panel, so its tail must grow by the same amount.
     val questionEndSpace = (panelHeight - minimumPanelHeight).coerceAtLeast(0.dp)
     Surface(shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp), tonalElevation = 2.dp,
         modifier = Modifier.fillMaxWidth().height(panelHeight).testTag("transcript-question-panel")) {
         Column(Modifier.padding(horizontal = 12.dp)) {
-            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).onSizeChanged { onHeaderSize(it.height) },
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                .background(reviewItem?.status?.color()?.copy(alpha = 0.10f) ?: Color.Transparent)
+                .onSizeChanged { onHeaderSize(it.height) },
                 verticalAlignment = Alignment.CenterVertically) {
-                Text(if (compact) "Q.${question.number}" else "Q.${question.number} · ${selected?.let { "已选 $it" } ?: "未作答"}",
+                Text(if (reviewItem != null) "${reviewItem.title} · ${reviewItem.status.label}" else if (compact) "Q.${question.number}" else "Q.${question.number} · ${selected?.let { "已选 $it" } ?: "未作答"}",
                     style = MaterialTheme.typography.titleSmall,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f).testTag("transcript-question-summary"))
@@ -104,12 +110,24 @@ fun ResizableQuestionPanel(question: Question, selected: String?, expanded: Bool
             }
             if (expanded) {
                 if (fixedNavigation && !compact) navigation()
+                if (reviewItem != null) {
+                    Row(Modifier.fillMaxWidth().height(48.dp)) {
+                        Tab(selected = !reviewAnswers, onClick = { onReviewAnswers(false) },
+                            modifier = Modifier.weight(1f).testTag("transcript-review-question-tab"), text = { Text("题目") })
+                        Tab(selected = reviewAnswers, onClick = { onReviewAnswers(true) },
+                            modifier = Modifier.weight(1f).testTag("transcript-review-answer-tab"), text = { Text("答案") })
+                    }
+                }
                 HorizontalDivider()
                 Column(Modifier.height(questionHeight).fillMaxWidth().testTag("transcript-question-body")
-                    .verticalScroll(questionScroll).padding(start = 4.dp, end = 4.dp, bottom = questionEndSpace)) {
+                    .reviewSwipeNavigation(reviewItem?.id to reviewAnswers, enabled = reviewItem != null,
+                        onPrevious = { if (hasPrevious) onPrevious() }, onNext = { if (hasNext) onNext() })
+                    .verticalScroll(if (reviewItem != null && reviewAnswers) reviewScroll else questionScroll)
+                    .padding(start = 4.dp, end = 4.dp, bottom = questionEndSpace)) {
                     if (!fixedNavigation && !compact) navigation()
-                    if (submitted) Text("已提交 · 只读", style = MaterialTheme.typography.labelMedium)
-                    if (v4Group != null && v4GroupQuestions.isNotEmpty()) {
+                    if (reviewItem != null && reviewAnswers) {
+                        Column(Modifier.padding(vertical = 16.dp)) { ReviewResultContent(reviewItem) }
+                    } else if (v4Group != null && v4GroupQuestions.isNotEmpty()) {
                         LayoutV4GroupView(v4Group, v4GroupQuestions, answers, editable, submitted, saving,
                             onSelect = onGroupSelect, onEdit = onGroupEdit, onCommit = onGroupCommit,
                             onActivate = onActivate)

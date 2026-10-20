@@ -17,6 +17,7 @@ internal fun NativeInlineAnswerView(modifier: Modifier, update: (NativeInlineGap
     val requester = remember { BringIntoViewRequester() }
     val scope = rememberCoroutineScope()
     val pending = remember { arrayOfNulls<Job>(1) }
+    val review = LocalQuestionReview.current
     AndroidView(modifier = modifier.bringIntoViewRequester(requester),
         factory = { NativeInlineGapFillView(it) },
         update = { view ->
@@ -27,5 +28,6 @@ internal fun NativeInlineAnswerView(modifier: Modifier, update: (NativeInlineGap
                 }
             }
             update(view)
+            view.showReview(review)
         })
 }

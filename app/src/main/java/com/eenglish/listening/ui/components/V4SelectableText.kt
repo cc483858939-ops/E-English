@@ -31,6 +31,7 @@ internal fun V4SelectableText(projection: AnnotationProjection, tag: String,
         onTap = onTap, projection = projection, fillWidth = fillWidth)
 }
 
+internal val V4InlineAnswerWidth = 132.dp
 internal data class V4InlineSlot(val offset: Int, val id: String, val content: @Composable () -> Unit)
 
 /** Native selection underneath the existing Compose editors. Answer values are never part of source offsets. */
@@ -41,7 +42,7 @@ internal fun V4SelectableRun(projection: AnnotationProjection, slots: List<V4Inl
     val density = LocalDensity.current
     val fontPx = with(density) { style.fontSize.toPx() }
     val linePx = with(density) { style.lineHeight.toPx().toInt() }
-    val widthPx = with(density) { 112.dp.roundToPx() }
+    val widthPx = with(density) { V4InlineAnswerWidth.roundToPx() }
     val heightPx = with(density) { 48.dp.roundToPx() }
     val color = MaterialTheme.colorScheme.onSurface.toArgb()
     var positions by remember(projection.text) { mutableStateOf<List<IntOffset>>(emptyList()) }
@@ -75,7 +76,7 @@ internal fun V4SelectableRun(projection: AnnotationProjection, slots: List<V4Inl
         })
         slots.forEachIndexed { index, slot -> positions.getOrNull(index)?.let { position ->
             key(slot.id) {
-                Box(Modifier.offset { position }.width(112.dp).height(48.dp)) { slot.content() }
+                Box(Modifier.offset { position }.width(V4InlineAnswerWidth).height(48.dp)) { slot.content() }
             }
         } }
     }

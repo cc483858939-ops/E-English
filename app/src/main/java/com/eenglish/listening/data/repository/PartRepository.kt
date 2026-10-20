@@ -7,6 +7,8 @@ import com.eenglish.listening.data.assets.QuestionLayoutCodec
 import com.eenglish.listening.domain.model.ListeningPart
 import com.eenglish.listening.domain.model.PartSummary
 import com.eenglish.listening.domain.model.BookIndex
+import com.eenglish.listening.domain.model.TranscriptTimeline
+import com.eenglish.listening.domain.model.TranscriptTimelineCatalog
 import com.eenglish.listening.domain.model.QuestionLayoutDocument
 import com.eenglish.listening.domain.layout.QuestionLayoutValidator
 import com.eenglish.listening.domain.layout.LayoutV4ImageMetadata
@@ -40,6 +42,17 @@ internal fun validateV4ForDisplayedPart(
 }
 
 class PartRepository(private val assets: AssetManager, private val library: File? = null) {
+    private val timelines by lazy {
+        try {
+            assets.open("transcript-timelines.json").bufferedReader().use {
+                Json.decodeFromString<TranscriptTimelineCatalog>(it.readText())
+            }.takeIf { it.schemaVersion == 1 }?.parts?.associateBy { it.partId }.orEmpty()
+        } catch (_: Exception) { emptyMap<String, TranscriptTimeline>() }
+    }
+
+    suspend fun loadTranscriptTimeline(part: ListeningPart): TranscriptTimeline? = withContext(Dispatchers.IO) {
+        timelines[part.id]?.takeIf { it.matches(part) }
+    }
     private val importer = library?.let { OfflinePackImporter(it) }
     private val locations = java.util.concurrent.ConcurrentHashMap<String, File>()
     private data class LayoutSource(val directory: File, val sha256: String, val imageHashes: Map<String, String>)
