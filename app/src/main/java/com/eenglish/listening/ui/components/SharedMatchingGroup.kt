@@ -276,7 +276,7 @@ private fun MatchingAnswerButton(
     OutlinedButton(
         onClick = onOpen,
         enabled = enabled,
-        modifier = modifier.heightIn(min = 48.dp).testTag("matching-answer-$questionNumber"),
+        modifier = modifier.questionJumpTarget(questionNumber).heightIn(min = 48.dp).testTag("matching-answer-$questionNumber"),
     ) {
         Text(displayed, maxLines = 1)
     }

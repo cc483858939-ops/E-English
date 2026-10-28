@@ -23,7 +23,7 @@ val LocalAnswerSaving = staticCompositionLocalOf { false }
 @Composable
 fun QuestionCard(question: Question, selected: String?, editable: Boolean, showResult: Boolean = false,
     showPrompt: Boolean = true, showInputInstructions: Boolean = true, onSelect: (String) -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(vertical = 12.dp).selectableGroup()) {
+    Column(Modifier.fillMaxWidth().questionJumpTarget(question.number).padding(vertical = 12.dp).selectableGroup()) {
         if (showPrompt) {
             Text("Q.${question.number}", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.testTag("question-${question.number}"))

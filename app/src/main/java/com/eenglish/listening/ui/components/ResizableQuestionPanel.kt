@@ -51,7 +51,11 @@ fun ResizableQuestionPanel(question: Question, selected: String?, expanded: Bool
     onGroupEdit: (String, String) -> Unit = onGroupSelect,
     onGroupCommit: (String) -> Unit = {}, onActivate: (Int) -> Unit = {}, compact: Boolean = false,
     reviewItem: QuestionReview? = null, reviewAnswers: Boolean = false,
-    onReviewAnswers: (Boolean) -> Unit = {}, reviewScroll: ScrollState = questionScroll) {
+    onReviewAnswers: (Boolean) -> Unit = {}, reviewScroll: ScrollState = questionScroll,
+    reviewProgress: String? = null) {
+    val choiceReview = reviewItem?.questions?.all { !it.isTextInput } == true
+    val fillReview = reviewItem?.questions?.all { it.isTextInput } == true
+    val separateAnswerTab = reviewItem != null && !choiceReview && !fillReview
     val navigation: @Composable () -> Unit = {
         Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             TextButton(onClick = onPrevious, enabled = hasPrevious,
@@ -61,12 +65,13 @@ fun ResizableQuestionPanel(question: Question, selected: String?, expanded: Bool
                 modifier = Modifier.testTag("transcript-next")) { Text("下一题") }
         }
     }
-    val reviewTabsHeight = if (reviewItem != null) 48.dp else 0.dp
+    val reviewTabsHeight = if (separateAnswerTab) 48.dp else 0.dp
     val chromeHeight = headerHeight + 1.dp + reviewTabsHeight + if (fixedNavigation && !compact) 48.dp else 0.dp
     val questionHeight = (panelHeight - chromeHeight).coerceAtLeast(1.dp)
     // This viewport grows with the panel, so its tail must grow by the same amount.
     val questionEndSpace = (panelHeight - minimumPanelHeight).coerceAtLeast(0.dp)
-    Surface(shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp), tonalElevation = 2.dp,
+    FillReviewMaterialInteraction(enabled = fillReview) {
+    Surface(shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp), tonalElevation = if (choiceReview) 0.dp else 2.dp,
         modifier = Modifier.fillMaxWidth().height(panelHeight).testTag("transcript-question-panel")) {
         Column(Modifier.padding(horizontal = 12.dp)) {
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
@@ -77,6 +82,8 @@ fun ResizableQuestionPanel(question: Question, selected: String?, expanded: Bool
                     style = MaterialTheme.typography.titleSmall,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f).testTag("transcript-question-summary"))
+                if (reviewItem != null && reviewProgress != null) Text(reviewProgress, style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.testTag("transcript-review-progress"))
                 if (expanded && !compact) {
                     Box(Modifier.width(64.dp).height(48.dp).testTag("transcript-drag-handle")
                         .semantics {
@@ -110,7 +117,7 @@ fun ResizableQuestionPanel(question: Question, selected: String?, expanded: Bool
             }
             if (expanded) {
                 if (fixedNavigation && !compact) navigation()
-                if (reviewItem != null) {
+                if (separateAnswerTab) {
                     Row(Modifier.fillMaxWidth().height(48.dp)) {
                         Tab(selected = !reviewAnswers, onClick = { onReviewAnswers(false) },
                             modifier = Modifier.weight(1f).testTag("transcript-review-question-tab"), text = { Text("题目") })
@@ -120,12 +127,14 @@ fun ResizableQuestionPanel(question: Question, selected: String?, expanded: Bool
                 }
                 HorizontalDivider()
                 Column(Modifier.height(questionHeight).fillMaxWidth().testTag("transcript-question-body")
-                    .reviewSwipeNavigation(reviewItem?.id to reviewAnswers, enabled = reviewItem != null,
+                    .reviewSwipeNavigation(reviewItem?.id to (separateAnswerTab && reviewAnswers), enabled = reviewItem != null,
                         onPrevious = { if (hasPrevious) onPrevious() }, onNext = { if (hasNext) onNext() })
-                    .verticalScroll(if (reviewItem != null && reviewAnswers) reviewScroll else questionScroll)
-                    .padding(start = 4.dp, end = 4.dp, bottom = questionEndSpace)) {
+                    .verticalScroll(if (choiceReview || separateAnswerTab && reviewAnswers) reviewScroll else questionScroll)
+                    .padding(start = 4.dp, end = 4.dp, bottom = if (choiceReview) 16.dp else questionEndSpace)) {
                     if (!fixedNavigation && !compact) navigation()
-                    if (reviewItem != null && reviewAnswers) {
+                    if (choiceReview) {
+                        ChoiceReviewContent(reviewItem, answers, v4Group, v4GroupQuestions)
+                    } else if (reviewItem != null && separateAnswerTab && reviewAnswers) {
                         Column(Modifier.padding(vertical = 16.dp)) { ReviewResultContent(reviewItem) }
                     } else if (v4Group != null && v4GroupQuestions.isNotEmpty()) {
                         LayoutV4GroupView(v4Group, v4GroupQuestions, answers, editable, submitted, saving,
@@ -161,5 +170,6 @@ fun ResizableQuestionPanel(question: Question, selected: String?, expanded: Bool
                 }
             }
         }
+    }
     }
 }

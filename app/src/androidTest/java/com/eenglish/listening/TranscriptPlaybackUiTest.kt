@@ -43,6 +43,7 @@ class TranscriptPlaybackUiTest {
     private val mode = mutableStateOf(TranscriptMode.ENGLISH)
     private val seeks = mutableListOf<Long>()
     private val highlights = mutableStateOf<List<Highlight>>(emptyList())
+    private val markEvents = mutableListOf<Pair<List<AnnotationChange>, Boolean>>()
 
     private fun show(valid: Boolean = true) {
         val block = AnnotationDocument.transcript(transcript, "en").blocks.single { it.textId == "segment:15" }
@@ -52,7 +53,15 @@ class TranscriptPlaybackUiTest {
         compose.setContent {
             ListeningTheme {
                 page = rememberTranscriptPageState(1)
-                CompositionLocalProvider(LocalAnnotations provides AnnotationContext(part.id, highlights.value)) {
+                CompositionLocalProvider(LocalAnnotations provides AnnotationContext(part.id, highlights.value, { changes, add ->
+                    markEvents += changes to add
+                    changes.forEach { change ->
+                        val previous = highlights.value.filter { it.key == change.key }.map { it.range }
+                        val updated = if (add) HighlightRanges.add(previous, change.start, change.end, 2)
+                            else HighlightRanges.remove(previous, change.start, change.end)
+                        highlights.value = highlights.value.filter { it.key != change.key } + updated.map { Highlight(change.key, it) }
+                    }
+                })) {
                     TranscriptScreen(state, audio.value, { audio.value = audio.value.copy(isPlaying = !audio.value.isPlaying) },
                         { seeks += it; audio.value = audio.value.copy(positionMs = it) }, mode.value, { mode.value = it }, {},
                         onSelect = { _, _ -> error("Playback must not save answers") },
@@ -193,5 +202,104 @@ class TranscriptPlaybackUiTest {
         compose.runOnIdle { audio.value = audio.value.copy(durationMs = 2000, positionMs = 1100) }
         compose.onNodeWithTag("transcript-follow-bar").assertDoesNotExist()
         assertNull(blueRange("transcript-en"))
+    }
+
+    @Test fun tapHighlightedEnglishSeeksWhilePausedAndRetainsMarks() {
+        show()
+        compose.runOnIdle { audio.value = audio.value.copy(positionMs = 15100, speed = 1.5f) }
+        compose.waitForIdle()
+        val block = AnnotationDocument.transcript(transcript, "en").blocks.single { it.textId == "segment:15" }
+        textAt("transcript-en").perform(tapCharacter(block.start + 2))
+        compose.runOnIdle {
+            assertEquals(listOf(15000L), seeks)
+            assertFalse(audio.value.isPlaying)
+            assertEquals(1.5f, audio.value.speed)
+            assertTrue(page.followPlayback.value)
+            assertEquals(1, highlights.value.size)
+            assertTrue(markEvents.isEmpty())
+        }
+        assertActive(15)
+        compose.onAllNodesWithText("复制整块高亮").assertCountEquals(0)
+    }
+
+    @Test fun tapChineseAndBothBilingualTextsUseTheSameCueAndKeepPlaying() {
+        show()
+        compose.runOnIdle { audio.value = audio.value.copy(positionMs = 15100, isPlaying = true) }
+        compose.onNodeWithText("中文翻译").performClick()
+        val block = AnnotationDocument.transcript(transcript, "zh").blocks.single { it.textId == "segment:15" }
+        textAt("transcript-zh").perform(tapCharacter(block.start + 2))
+        assertActive(15, "zh")
+        compose.onNodeWithText("英中双语").performClick()
+        compose.onNodeWithTag("transcript-segment-15").assertIsDisplayed()
+        for (language in listOf("en", "zh")) {
+            textAt("transcript-$language-15").perform(tapCharacter(2))
+        }
+        compose.runOnIdle {
+            assertEquals(listOf(15000L, 15000L, 15000L), seeks)
+            assertTrue(audio.value.isPlaying)
+            assertTrue(page.followPlayback.value)
+        }
+    }
+
+    @Test fun longPressStillCopiesMarksAndRemovesWithoutSeeking() {
+        show()
+        compose.runOnIdle { audio.value = audio.value.copy(positionMs = 15100) }
+        compose.waitForIdle()
+        val block = AnnotationDocument.transcript(transcript, "en").blocks.single { it.textId == "segment:15" }
+        textAt("transcript-en").perform(pressWord(block.start + 2), selectionAction(block.start, block.start + 7))
+        selectionMenu("复制")
+        compose.runOnIdle {
+            val clipboard = compose.activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            assertEquals("Segment", clipboard.primaryClip!!.getItemAt(0).text.toString())
+            assertTrue(seeks.isEmpty())
+        }
+        val start = block.start + block.content.indexOf("contains")
+        textAt("transcript-en").perform(pressWord(start + 2), selectionAction(start, start + 8))
+        selectionMenu("高亮")
+        compose.runOnIdle { assertTrue(markEvents.last().second); assertTrue(seeks.isEmpty()) }
+        textAt("transcript-en").perform(pressWord(start + 2), selectionAction(start, start + 8))
+        selectionMenu("取消高亮")
+        compose.runOnIdle { assertFalse(markEvents.last().second); assertEquals(1, highlights.value.size); assertTrue(seeks.isEmpty()) }
+    }
+
+    @Test fun titleWhitespaceAndDraggingDoNotSeek() {
+        show()
+        textAt("transcript-en").perform(tapCharacter(2))
+        // The blank separator after PART 1 is not a paragraph's spoken text.
+        textAt("transcript-en").perform(tapCharacter(segments.first().english.length))
+        compose.runOnIdle { assertTrue(seeks.isEmpty()) }
+        compose.onNodeWithTag("transcript-body").performTouchInput { swipeUp() }
+        compose.runOnIdle { assertTrue(seeks.isEmpty()); assertFalse(page.followPlayback.value) }
+    }
+
+    @Test fun mismatchedTimelineTapNeverSeeks() {
+        show(valid = false)
+        val block = AnnotationDocument.transcript(transcript, "en").blocks.single { it.textId == "segment:1" }
+        textAt("transcript-en").perform(tapCharacter(block.start + 2))
+        compose.runOnIdle { assertTrue(seeks.isEmpty()) }
+    }
+
+    @Test fun twoQuickTapsBothSeekWithoutOpeningSelection() {
+        show()
+        compose.runOnIdle { audio.value = audio.value.copy(positionMs = 15100) }
+        compose.waitForIdle()
+        val block = AnnotationDocument.transcript(transcript, "en").blocks.single { it.textId == "segment:15" }
+        textAt("transcript-en").perform(doubleTapCharacter(block.start + 2))
+        compose.runOnIdle {
+            assertEquals(listOf(15000L, 15000L), seeks)
+            val view = nativeText(compose.activity, "transcript-en")
+            assertFalse(view.selectionStart >= 0 && view.selectionEnd > view.selectionStart)
+        }
+    }
+
+    @Test fun tappingWhileSelectingDoesNotSeek() {
+        show()
+        compose.runOnIdle { audio.value = audio.value.copy(positionMs = 15100) }
+        compose.waitForIdle()
+        val block = AnnotationDocument.transcript(transcript, "en").blocks.single { it.textId == "segment:15" }
+        val start = block.start + block.content.indexOf("contains")
+        textAt("transcript-en").perform(pressWord(start + 2), selectionAction(start, start + 8),
+            tapCharacter(block.start + block.content.indexOf("useful") + 2))
+        compose.runOnIdle { assertTrue(seeks.isEmpty()) }
     }
 }

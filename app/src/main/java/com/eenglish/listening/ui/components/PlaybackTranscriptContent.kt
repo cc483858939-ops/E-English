@@ -23,12 +23,15 @@ data class TranscriptPlaybackBounds(val index: Int, val top: Int, val bottom: In
 @Composable
 fun PlaybackTranscriptContent(transcript: Transcript, mode: TranscriptMode, activeIndex: Int?, anchorIndex: Int?,
     scroll: ScrollState, viewportTop: Float, onBounds: (TranscriptPlaybackBounds?) -> Unit,
-    onUserInteraction: () -> Unit) {
+    onUserInteraction: () -> Unit, seekableIndices: Set<Int> = emptySet(), onSegmentTap: ((Int) -> Unit)? = null) {
     if (mode != TranscriptMode.BILINGUAL) {
         val language = if (mode == TranscriptMode.ENGLISH) "en" else "zh"
         val document = remember(transcript, language) { AnnotationDocument.transcript(transcript, language) }
         val active = document.blocks.firstOrNull { it.textId == "segment:$activeIndex" }
         val anchor = document.blocks.firstOrNull { it.textId == "segment:$anchorIndex" }
+        val targets = remember(document, seekableIndices) {
+            document.blocks.filter { it.textId.removePrefix("segment:").toIntOrNull() in seekableIndices }
+        }
         var top by remember(mode) { mutableStateOf<Float?>(null) }
         var relative by remember(mode, anchorIndex) { mutableStateOf<Pair<Int, Int>?>(null) }
         LaunchedEffect(top, relative, anchorIndex) {
@@ -41,7 +44,12 @@ fun PlaybackTranscriptContent(transcript: Transcript, mode: TranscriptMode, acti
         }.semantics { stateDescription = activeIndex?.let { "正在播放第${it + 1}段" } ?: "当前无原文播放段落" },
             viewTag = "transcript-$language", playbackRange = active?.let { it.start until it.end },
             playbackAnchor = anchor?.let { it.start until it.end },
-            onPlaybackBounds = { relative = it }, onUserInteraction = onUserInteraction)
+            onPlaybackBounds = { relative = it }, onUserInteraction = onUserInteraction,
+            playbackTapRanges = targets.map { it.start until it.end },
+            onPlaybackTapOffset = onSegmentTap?.let { seek -> { offset ->
+                targets.firstOrNull { offset >= it.start && offset < it.end }
+                    ?.textId?.removePrefix("segment:")?.toIntOrNull()?.let(seek)
+            } })
     } else {
         val positions = remember(transcript, mode) { mutableStateMapOf<Int, Pair<Int, Int>>() }
         val currentBounds = anchorIndex?.let { positions[it] }
@@ -64,7 +72,11 @@ fun PlaybackTranscriptContent(transcript: Transcript, mode: TranscriptMode, acti
                         AnnotationDocument.single(value, "transcript", "segment:$index", language)
                     }, viewTag = "transcript-$language-$index",
                         color = if (language == "zh") MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
-                        playbackRange = if (isActive) value.indices else null, onUserInteraction = onUserInteraction)
+                        playbackRange = if (isActive) value.indices else null, onUserInteraction = onUserInteraction,
+                        playbackTapRanges = if (index in seekableIndices) listOf(value.indices) else emptyList(),
+                        onPlaybackTapOffset = onSegmentTap?.takeIf { index in seekableIndices }?.let { seek ->
+                            { _ -> seek(index) }
+                        })
                 }
             }
         }

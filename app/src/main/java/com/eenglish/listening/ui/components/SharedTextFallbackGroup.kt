@@ -56,7 +56,7 @@ fun SharedTextFallbackGroupView(
                         else MaterialTheme.colorScheme.surface,
                         RoundedCornerShape(10.dp),
                     )
-                    .testTag("shared-text-answer-${question.number}"),
+                    .questionJumpTarget(question.number).testTag("shared-text-answer-${question.number}"),
             ) {
                 QuestionCard(
                     question = question,

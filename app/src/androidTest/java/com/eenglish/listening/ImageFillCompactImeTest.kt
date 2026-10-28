@@ -48,6 +48,7 @@ class ImageFillCompactImeTest {
     private var listOffset = { 0 to 0 }
     private var toggles = 0
     private var seekDelta = 0L
+    private val audio = mutableStateOf(AudioState(ready = true, durationMs = 365000))
     private lateinit var transcriptPage: TranscriptPageState
 
     private fun load(fontScale: Float = 1f, textGroup: Boolean = false, transcript: Boolean = false) {
@@ -111,16 +112,16 @@ class ImageFillCompactImeTest {
             CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale),
                 LocalQuestionImages provides loader, LocalAnswerSession provides attempt.session.id) {
                 ListeningTheme {
-                    if (transcript) TranscriptScreen(state.value, AudioState(ready = true, durationMs = 365000),
+                    if (transcript) TranscriptScreen(state.value, audio.value,
                         onToggle = {}, onSeek = {}, mode = TranscriptMode.ENGLISH, onModeChange = {}, onBack = {},
                         onSelect = { _, _ -> },
                         onInlineEdit = { id, value -> state.value = state.value.copy(inlineDrafts = state.value.inlineDrafts + (id to value)) },
                         onInlineCommit = ::commit, onFlushInline = { state.value.inlineDrafts.keys.toList().forEach(::commit) },
-                        pageState = transcriptPage)
-                    else PracticeScreen(state.value, AudioState(ready = true, durationMs = 365000),
+                        pageState = transcriptPage, onSpeed = { audio.value = audio.value.copy(speed = it) })
+                    else PracticeScreen(state.value, audio.value,
                         onToggle = { toggles++ }, onSeek = {}, onSelect = { _, _ -> },
                         onBack = {}, onViewTranscript = {}, onSubmit = {}, onConfirm = {}, onDismiss = {}, onNew = {}, onHistory = {},
-                        onSeekBy = { seekDelta += it },
+                        onSeekBy = { seekDelta += it }, onSpeed = { audio.value = audio.value.copy(speed = it) },
                         onInlineEdit = { id, value -> state.value = state.value.copy(inlineDrafts = state.value.inlineDrafts + (id to value)) },
                         onInlineCommit = ::commit, onFlushInline = { state.value.inlineDrafts.keys.toList().forEach(::commit) }, listState = list)
                 }
@@ -139,12 +140,12 @@ class ImageFillCompactImeTest {
         it.config.getOrElse(SemanticsProperties.TestTag) { "" }.startsWith(prefix)
     }
     private fun bounds(tag: String): Rect = compose.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot
-    private fun waitIme(visible: Boolean) {
+    private fun waitIme(visible: Boolean, compactPlayerWhenHidden: Boolean = false) {
         compose.waitUntil(10000) { ViewCompat.getRootWindowInsets(compose.activity.window.decorView)
             ?.let { it.isVisible(WindowInsetsCompat.Type.ime()) == visible &&
                 (if (visible) it.getInsets(WindowInsetsCompat.Type.ime()).bottom > 0
                     else it.getInsets(WindowInsetsCompat.Type.ime()).bottom == 0) } == true }
-        compose.waitUntil(10000) { compose.onAllNodesWithTag("audio-compact-time").fetchSemanticsNodes().isNotEmpty() == visible }
+        compose.waitUntil(10000) { compose.onAllNodesWithTag("audio-compact-time").fetchSemanticsNodes().isNotEmpty() == (visible || compactPlayerWhenHidden) }
         compose.waitForIdle()
     }
     private fun assertAboveIme(tag: String) {
@@ -291,5 +292,56 @@ class ImageFillCompactImeTest {
         assertTrue("$tag must retain its full touch target", field.height >= 48 * root.resources.displayMetrics.density)
         assertTrue("$tag must fit the scrolling question viewport", field.top >= body.top && field.bottom <= body.bottom + 1)
         assertTrue("$tag must remain above the real keyboard", field.bottom <= root.height - ime + 1)
+    }
+
+    private fun cycleSpeedWhileTyping(transcript: Boolean) {
+        load(textGroup = true, transcript = transcript)
+        val field = compose.onNodeWithTag("v4-input-1-1")
+        field.performScrollTo().performClick().performTextInput("before")
+        waitIme(true)
+        val player = if (transcript) "transcript-player" else "practice-player"
+        val compactHeight = bounds(player).height
+        for (speed in listOf(1.25f, 1.5f, 1.75f, 2f, 0.75f, 1f)) {
+            compose.onNodeWithTag("audio-speed").performClick()
+                .assertTextEquals("${com.eenglish.listening.ui.components.formatSpeed(speed)}×")
+            waitIme(true)
+            field.assertIsFocused().assertTextContains("before")
+            assertEquals(compactHeight, bounds(player).height, 1f)
+            compose.runOnIdle { assertEquals(speed, audio.value.speed) }
+        }
+        capture(if (transcript) "transcript-speed-keyboard" else "practice-speed-keyboard")
+        field.performTextReplacement("after")
+        field.performImeAction()
+        closeSoftKeyboard()
+        waitIme(false)
+        compose.onNodeWithTag("audio-speed").assertTextEquals("1.0×")
+        compose.waitUntil(5000) { saved(1) == "after" }
+        capture(if (transcript) "transcript-speed" else "practice-speed")
+    }
+
+    @Test fun practiceCompactSpeedDoesNotDismissKeyboardOrInterruptTyping() = cycleSpeedWhileTyping(false)
+    @Test fun transcriptCompactSpeedDoesNotDismissKeyboardOrInterruptTyping() = cycleSpeedWhileTyping(true)
+
+    @Test fun largeFillCardRestoresItsSharedHeightAfterTheRealKeyboardCloses() {
+        load(textGroup = true, transcript = true)
+        compose.onNodeWithTag("transcript-drag-handle").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(0.90f) }
+        val tall = bounds("transcript-question-panel").height
+        val reading = transcriptPage.transcriptScroll.value
+        compose.onNodeWithTag("audio-compact-time").assertIsDisplayed()
+        compose.onNodeWithTag("v4-input-4-1").performScrollTo().performClick().performTextInput("large-fill-answer")
+        waitIme(true)
+        compose.onNodeWithTag("transcript-drag-handle").assertDoesNotExist()
+        assertTextFieldVisible("v4-input-4-1", "transcript-question-body")
+        compose.runOnIdle { assertEquals(0.90f, transcriptPage.panelRatio.floatValue, 0.001f) }
+        compose.onNodeWithTag("v4-input-4-1").performImeAction()
+        closeSoftKeyboard()
+        waitIme(false, compactPlayerWhenHidden = true)
+        compose.onNodeWithTag("audio-compact-time").assertIsDisplayed()
+        compose.onNodeWithTag("transcript-language-tabs").assertDoesNotExist()
+        assertEquals(tall, bounds("transcript-question-panel").height, 1f)
+        assertEquals(reading, transcriptPage.transcriptScroll.value)
+        compose.waitUntil(5000) { saved(4) == "large-fill-answer" }
+        compose.onNodeWithTag("transcript-drag-handle").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(0.60f) }
+        compose.onNodeWithTag("audio-progress").assertExists()
     }
 }

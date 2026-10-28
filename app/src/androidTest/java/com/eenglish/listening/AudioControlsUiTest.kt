@@ -1,8 +1,17 @@
 package com.eenglish.listening
 
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import com.eenglish.listening.audio.AudioState
@@ -64,6 +73,51 @@ class AudioControlsUiTest {
             .config[SemanticsProperties.ProgressBarRangeInfo].current, 1f)
         compose.onNodeWithTag("audio-seek").performTouchInput { up() }
         compose.runOnIdle { assertEquals(listOf(preview.toLong()), seeks) }
+    }
+
+    @Test fun compactSpeedCyclesWrapsWithoutMenuAndFitsNarrowScreenWithLargeText() {
+        val state = mutableStateOf(AudioState(ready = true, speed = 2f, durationMs = 45296000, positionMs = 3600000))
+        val singleRow = mutableStateOf(true)
+        val selected = mutableListOf<Float>()
+        compose.setContent {
+            val density = LocalDensity.current
+            CompositionLocalProvider(LocalDensity provides Density(density.density, 1.6f)) {
+                ListeningTheme {
+                    Box(Modifier.width(320.dp)) {
+                        AudioControls(state.value, {}, {}, compact = true, singleRow = singleRow.value,
+                            onSpeed = { selected += it; state.value = state.value.copy(speed = it) })
+                    }
+                }
+            }
+        }
+        (playbackSpeeds + playbackSpeeds.first()).forEach { expected ->
+            compose.onNodeWithTag("audio-speed").performClick().assertTextEquals("${formatSpeed(expected)}×")
+            compose.onNodeWithTag("audio-speed-${formatSpeed(expected)}").assertDoesNotExist()
+            val parent = compose.onNodeWithTag("audio-controls").fetchSemanticsNode().boundsInRoot
+            val controls = listOf("audio-back-5", "audio-toggle", "audio-forward-5", "audio-compact-time", "audio-speed")
+                .map { compose.onNodeWithTag(it).assertIsDisplayed().fetchSemanticsNode().boundsInRoot }
+            controls.zipWithNext().forEach { (a, b) -> assertTrue("Compact controls overlap", a.right <= b.left) }
+            assertTrue(controls.last().right <= parent.right)
+            assertTrue(controls.last().width >= 48 * compose.density.density)
+            assertTrue(controls.last().height >= 48 * compose.density.density)
+            compose.onNodeWithText("${formatSpeed(expected)}×", useUnmergedTree = true)
+                .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { getLayout ->
+                    val layouts = mutableListOf<TextLayoutResult>()
+                    assertTrue(getLayout(layouts))
+                    val layout = layouts.single()
+                    // The paragraph container may retain the parent's constraint when Text wraps
+                    // its actual glyph width; inspect the visible line rather than that container.
+                    assertTrue("Speed label must fit at large font size",
+                        layout.getLineRight(0) - layout.getLineLeft(0) <= layout.size.width + 1f)
+                    assertEquals(1, layout.lineCount)
+                    assertEquals(layout.layoutInput.text.length, layout.getLineEnd(0))
+                }
+        }
+        assertEquals(playbackSpeeds + playbackSpeeds.first(), selected)
+        compose.runOnIdle { singleRow.value = false }
+        compose.onNodeWithTag("audio-speed").assertTextEquals("0.75×").performClick()
+        compose.onNodeWithTag("audio-speed-1.5").performClick()
+        compose.onNodeWithTag("audio-speed").assertTextEquals("1.5×")
     }
 
     private fun assertLayout() {

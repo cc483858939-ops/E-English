@@ -72,7 +72,8 @@ fun AnnotatableText(document: AnnotationDocument, modifier: Modifier = Modifier,
     sourceDocuments: List<AnnotationDocument> = emptyList(),
     projection: AnnotationProjection? = null, fillWidth: Boolean = true,
     playbackRange: IntRange? = null, onPlaybackBounds: (Pair<Int, Int>?) -> Unit = {},
-    onUserInteraction: () -> Unit = {}, playbackAnchor: IntRange? = playbackRange) {
+    onUserInteraction: () -> Unit = {}, playbackAnchor: IntRange? = playbackRange,
+    playbackTapRanges: List<IntRange> = emptyList(), onPlaybackTapOffset: ((Int) -> Unit)? = null) {
     val annotations = LocalAnnotations.current
     val annotationDocuments = sourceDocuments.ifEmpty { listOf(document) + otherDocuments }
     require(matchingProjection == null || annotationDocuments.all { it.text == matchingProjection.source }) {
@@ -134,6 +135,7 @@ fun AnnotatableText(document: AnnotationDocument, modifier: Modifier = Modifier,
             view.onUserInteraction = onUserInteraction
             view.onPlaybackBounds = onPlaybackBounds
             view.setPlaybackRange(playbackRange, outlineColor, playbackAnchor)
+            view.setPlaybackTapRanges(playbackTapRanges, onPlaybackTapOffset)
         })
 }
 
@@ -142,6 +144,44 @@ private class PermanentForeground : ForegroundColorSpan(0xFF29230E.toInt())
 private class PlaybackForeground(color: Int) : ForegroundColorSpan(color)
 
 open class SelectableAnnotationTextView(context: Context) : TextView(context) {
+    private var playbackTapRanges: List<IntRange> = emptyList()
+    private var onPlaybackTapOffset: ((Int) -> Unit)? = null
+    private var pressedPlaybackRange: IntRange? = null
+
+    fun setPlaybackTapRanges(ranges: List<IntRange>, onTapOffset: ((Int) -> Unit)?) {
+        if (ranges != playbackTapRanges || onTapOffset == null) pressedPlaybackRange = null
+        playbackTapRanges = ranges
+        onPlaybackTapOffset = onTapOffset
+    }
+
+    /** Exact glyph hit testing: paragraph separators and the whitespace beside a line never seek. */
+    private fun playbackOffsetAt(x: Float, y: Float): Int? {
+        val lines = layout ?: return null
+        val localX = x - totalPaddingLeft + scrollX
+        val localY = y - totalPaddingTop + scrollY
+        if (localY < 0 || localY >= lines.height) return null
+        val line = lines.getLineForVertical(localY.toInt())
+        if (localX < lines.getLineLeft(line) || localX >= lines.getLineRight(line)) return null
+        val caret = lines.getOffsetForHorizontal(line, localX)
+        val previous = if (caret > 0) Character.offsetByCodePoints(text, caret, -1) else -1
+        val path = Path()
+        val bounds = RectF()
+        for (offset in listOf(caret, previous)) {
+            if (offset < lines.getLineStart(line) || offset >= lines.getLineEnd(line) || offset >= text.length ||
+                text[offset].isWhitespace()) continue
+            path.reset()
+            lines.getSelectionPath(offset, Character.offsetByCodePoints(text, offset, 1), path)
+            path.computeBounds(bounds, true)
+            if (bounds.contains(localX, localY) && playbackTapRanges.any { offset in it }) return offset
+        }
+        return null
+    }
+
+    private fun cancelNativeTouch(event: MotionEvent) {
+        val cancel = MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_CANCEL }
+        try { super.onTouchEvent(cancel) } finally { cancel.recycle() }
+    }
+
     var onUserInteraction: (() -> Unit)? = null
     var onPlaybackBounds: (Pair<Int, Int>?) -> Unit = {}
     private var playbackRange: IntRange? = null
@@ -237,8 +277,11 @@ open class SelectableAnnotationTextView(context: Context) : TextView(context) {
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
             onUserInteraction?.invoke()
+            val offset = if (onPlaybackTapOffset != null) playbackOffsetAt(event.x, event.y) else null
+            pressedPlaybackRange = offset?.let { value -> playbackTapRanges.firstOrNull { value in it } }
             blockActionMode?.finish()
-            wasSelectingAtDown = actionMode != null
+            wasSelectingAtDown = actionMode != null || onPlaybackTapOffset != null &&
+                selectionStart >= 0 && selectionEnd > selectionStart
             moved = false
             downX = event.x; downY = event.y
             pressedGap = if (onGapClick != null) gapAt(event.x, event.y)?.number else null
@@ -248,13 +291,28 @@ open class SelectableAnnotationTextView(context: Context) : TextView(context) {
             val slop = ViewConfiguration.get(context).scaledTouchSlop
             if (kotlin.math.abs(event.x - downX) > slop || kotlin.math.abs(event.y - downY) > slop) moved = true
         }
-        if (event.actionMasked == MotionEvent.ACTION_CANCEL) moved = true
+        if (event.actionMasked == MotionEvent.ACTION_CANCEL || event.pointerCount > 1) moved = true
         if (moved || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+            pressedPlaybackRange = null
             pressedGap = null
             invalidate()
         }
         val shortTap = event.actionMasked == MotionEvent.ACTION_UP && !moved &&
             event.eventTime - event.downTime < ViewConfiguration.getLongPressTimeout()
+        if (shortTap && onPlaybackTapOffset != null) {
+            val offset = playbackOffsetAt(event.x, event.y)
+            val range = pressedPlaybackRange
+            pressedPlaybackRange = null
+            if (offset != null && range != null && offset in range) {
+                // Single tap seeks immediately; long press and existing selections stay native.
+                if (!wasSelectingAtDown && actionMode == null && !(selectionStart >= 0 && selectionEnd > selectionStart)) {
+                    cancelNativeTouch(event)
+                    onPlaybackTapOffset?.invoke(offset)
+                    return true
+                }
+                return super.onTouchEvent(event)
+            }
+        }
         if (shortTap) {
             gapAt(event.x, event.y)?.takeIf { onGapClick != null }?.let { gap ->
                 val cancel = MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_CANCEL }
@@ -274,6 +332,7 @@ open class SelectableAnnotationTextView(context: Context) : TextView(context) {
         }
         val handled = super.onTouchEvent(event)
         if (event.actionMasked == MotionEvent.ACTION_UP) {
+            pressedPlaybackRange = null
             pressedGap = null
             invalidate()
         }
@@ -356,6 +415,7 @@ open class SelectableAnnotationTextView(context: Context) : TextView(context) {
         if (blockActionMode == null) activeBlock = null
     }
     override fun onDetachedFromWindow() {
+        pressedPlaybackRange = null
         blockActionMode?.finish()
         super.onDetachedFromWindow()
     }
@@ -364,6 +424,7 @@ open class SelectableAnnotationTextView(context: Context) : TextView(context) {
         val changed = text.toString() != value
         if (changed || activeBlock?.let { it !in merged } == true) blockActionMode?.finish()
         if (changed) {
+            pressedPlaybackRange = null
             actionMode?.finish()
             setText(value, BufferType.SPANNABLE)
         }

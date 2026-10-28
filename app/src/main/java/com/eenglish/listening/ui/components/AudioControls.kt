@@ -15,10 +15,14 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.eenglish.listening.audio.AudioState
@@ -46,6 +50,15 @@ fun AudioControls(state: AudioState, onToggle: () -> Unit, onSeek: (Long) -> Uni
     val duration = state.durationMs.toFloat().coerceAtLeast(1f)
     val displayed = (if (dragging) dragValue else state.positionMs.toFloat()).coerceIn(0f, duration)
     val colors = MaterialTheme.colorScheme
+    val speedStyle = MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp, fontWeight = FontWeight.Medium)
+    val textMeasurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val compactSpeedWidth = remember(textMeasurer, density, speedStyle) {
+        with(density) {
+            playbackSpeeds.maxOf { textMeasurer.measure("${formatSpeed(it)}×", speedStyle, maxLines = 1).size.width }
+                .toDp().plus(16.dp).coerceAtLeast(56.dp)
+        }
+    }
     Card(shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth().testTag("audio-controls"),
         colors = CardDefaults.cardColors(containerColor = colors.surfaceVariant)) {
         Column(Modifier.padding(horizontal = if (compact) 10.dp else 14.dp, vertical = 6.dp)) {
@@ -77,7 +90,15 @@ fun AudioControls(state: AudioState, onToggle: () -> Unit, onSeek: (Long) -> Uni
                 }
                 if (singleRow) Text("${formatTime(state.positionMs)} / ${formatTime(state.durationMs)}",
                     style = MaterialTheme.typography.labelSmall, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f).testTag("audio-compact-time"))
+                if (singleRow) FilledTonalButton(
+                    onClick = { onSpeed(playbackSpeeds[(playbackSpeeds.indexOf(state.speed) + 1) % playbackSpeeds.size]) },
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp), shape = CircleShape,
+                    modifier = Modifier.widthIn(min = compactSpeedWidth).heightIn(min = 48.dp).focusProperties { canFocus = false }
+                        .testTag("audio-speed").semantics { contentDescription = "播放速度${formatSpeed(state.speed)}倍，点击切换下一档" }) {
+                    Text("${formatSpeed(state.speed)}×", style = speedStyle, maxLines = 1)
+                }
                 if (!singleRow) Box(Modifier.weight(1f, fill = false)) {
                     FilledTonalButton(onClick = { speedMenu = true },
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp), shape = CircleShape,

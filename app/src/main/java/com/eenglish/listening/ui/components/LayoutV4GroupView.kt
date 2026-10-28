@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
@@ -51,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.eenglish.listening.domain.annotation.AnnotationProjection
+import com.eenglish.listening.data.assets.FillNumberCutAssets
 import com.eenglish.listening.domain.layout.V4AnnotationSources
 import com.eenglish.listening.domain.layout.V4FillNumbering
 import com.eenglish.listening.domain.layout.fillNumberLabel
@@ -167,6 +169,11 @@ fun LayoutV4GroupView(
     }
     val sharedMatching = remember(group) { sharedTextMatchingLayout(group) }
     val questionById = remember(questions) { questions.associateBy { it.id } }
+    val assets = LocalContext.current.applicationContext.assets
+    val numberCuts = remember(assets) { FillNumberCutAssets.load(assets) }
+    val hiddenNumbers = remember(group, questionById, numberCuts) {
+        V4FillNumbering.hiddenRanges(group, questionById, numberCuts)
+    }
     val sharedMatchingReady = remember(sharedMatching, questionById) {
         sharedMatching != null && sharedMatchingOptionsAgree(sharedMatching, questionById)
     }
@@ -185,8 +192,8 @@ fun LayoutV4GroupView(
     var activeImageFillQuestionId by remember(groupId) { mutableStateOf<String?>(null) }
     val focusManager = LocalFocusManager.current
     val context = remember(group, questions, answers, editable, submitted, saving, slots, responses, pools,
-        imageFillAnswerList, inlineTextFill, activeImageFillQuestionId, imageAnswerCardOverview, imageAnswerCardActive, onImageTap, imageAnswerCardCompact) {
-        V4RenderContext(group, questionById, slots, responses, pools, answers, editable, submitted,
+        imageFillAnswerList, inlineTextFill, activeImageFillQuestionId, imageAnswerCardOverview, imageAnswerCardActive, onImageTap, imageAnswerCardCompact, hiddenNumbers) {
+        V4RenderContext(group, hiddenNumbers, questionById, slots, responses, pools, answers, editable, submitted,
             saving, onSelect, onEdit, onCommit, onActivate, { slotId -> activeSlotId = slotId },
             imageFillAnswerList, inlineTextFill, imageAnswerCardOverview, imageAnswerCardActive, imageAnswerCardCompact, onImageTap, {
                 val focusedQuestionId = activeImageFillQuestionId
@@ -271,6 +278,7 @@ fun LayoutV4GroupView(
 
 private data class V4RenderContext(
     val group: JsonObject,
+    val hiddenNumbers: Map<String, List<IntRange>>,
     val questionById: Map<String, Question>,
     val slots: Map<String, JsonObject>,
     val responses: Map<String, JsonObject>,
@@ -291,9 +299,7 @@ private data class V4RenderContext(
     val imageAnswerCardCompact: Boolean,
     val onImageTap: () -> Unit,
     val beforeImageZoom: () -> Unit,
-) {
-    val hiddenPrefixes = V4FillNumbering.hiddenPrefixes(group, questionById)
-}
+)
 
 @Composable
 private fun V4BlockView(block: JsonObject, context: V4RenderContext, depth: Int, numberedOrdinal: Int? = null) {
@@ -320,7 +326,7 @@ private fun V4BlockView(block: JsonObject, context: V4RenderContext, depth: Int,
             }
         }
         "listItem" -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            val hiddenNumber = block.v4Array("children").any { it.jsonObject.v4String("id") in context.hiddenPrefixes }
+            val hiddenNumber = block.v4Array("children").any { it.jsonObject.v4String("id") in context.hiddenNumbers }
             val marker = if (hiddenNumber && block.v4String("marker") == "numbered") ""
                 else v4ListMarkerLabel(block.v4String("marker"), hasExplicitNumberPrefix(block), numberedOrdinal)
             if (marker.isNotEmpty()) {
@@ -414,7 +420,7 @@ private fun InlineFillTextLayout(
 
 private fun blockProjection(block: JsonObject, context: V4RenderContext): AnnotationProjection {
     val original = V4AnnotationSources.block(context.group.v4String("groupId"), block, context.questionById)
-    return original.slice(context.hiddenPrefixes[block.v4String("id")] ?: 0, original.text.length)
+    return V4FillNumbering.project(original, context.hiddenNumbers[block.v4String("id")].orEmpty())
 }
 
 @Composable
@@ -465,6 +471,12 @@ private fun V4Flow(block: JsonObject, context: V4RenderContext, depth: Int) {
 
 @Composable
 private fun V4SlotControl(slot: JsonObject, context: V4RenderContext) {
+    val question = context.questionById[slot.v4String("questionId")] ?: return
+    Box(Modifier.questionJumpTarget(question.number)) { V4SlotControlContent(slot, context) }
+}
+
+@Composable
+private fun V4SlotControlContent(slot: JsonObject, context: V4RenderContext) {
     val questionId = slot.v4String("questionId")
     val question = context.questionById[questionId] ?: return
     val slotId = slot.v4String("slotId")
@@ -613,7 +625,7 @@ private fun V4ImageAnswerList(
             val answerParts = splitForLayout(question, row.response, context.answers[question.id].orEmpty())
             val bringIntoView = remember(question.id) { BringIntoViewRequester() }
             Row(
-                Modifier.fillMaxWidth().bringIntoViewRequester(bringIntoView)
+                Modifier.fillMaxWidth().questionJumpTarget(question.number).bringIntoViewRequester(bringIntoView)
                     .testTag("v4-image-list-row-${question.number}"),
                 verticalAlignment = Alignment.Top,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -733,7 +745,7 @@ private fun V4SharedTextMatchingGroup(
         }
         layout.rows.forEachIndexed { rowIndex, row ->
             val question = context.questionById[row.questionId] ?: return@forEachIndexed
-            Column(Modifier.fillMaxWidth().testTag("v4-letter-match-row-${question.number}"),
+            Column(Modifier.fillMaxWidth().questionJumpTarget(question.number).testTag("v4-letter-match-row-${question.number}"),
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 V4BlockView(row.prompt, context, depth = 1)
                 if (context.submitted && LocalQuestionReview.current != null) {
@@ -806,7 +818,7 @@ private fun V4ChoiceList(block: JsonObject, context: V4RenderContext) {
         val selected = Grader.selection(stored)
         Text("请选择 ${response.v4Int("selectCount")} 项，顺序不限 · 每项计 1 分",
             style = MaterialTheme.typography.labelLarge)
-        Column(Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().questionJumpTarget(first.number)) {
             options.forEach { option ->
                 val checked = option.id in selected
                 val canChoose = context.editable && !context.submitted && (checked || selected.size < response.v4Int("selectCount"))
@@ -839,7 +851,8 @@ private fun V4ChoiceList(block: JsonObject, context: V4RenderContext) {
                 val heading = if (response.v4String("kind") == "singleChoice") {
                     singleChoiceHeading(context.group, block, question.number)
                 } else "Q${question.number} · 选择一项"
-                if (heading != null) Text(heading, style = MaterialTheme.typography.labelLarge)
+                if (heading != null) Text(heading, style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.questionJumpTarget(question.number))
                 options.forEach { option ->
                     val selected = context.answers[question.id].equals(option.id, ignoreCase = true)
                     val enabled = context.editable && !context.submitted && !context.saving

@@ -22,6 +22,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.widget.TextViewCompat
+import androidx.core.view.doOnLayout
 import com.eenglish.listening.domain.annotation.AnnotationDocument
 import com.eenglish.listening.domain.annotation.HighlightRange
 import com.eenglish.listening.domain.gapfill.GapFillGroup
@@ -37,6 +38,20 @@ import com.eenglish.listening.domain.grading.Grader
  * This is one native layout, not a dialog, detached input or absolute screen overlay.
  */
 class NativeInlineGapFillView(context: Context) : FrameLayout(context) {
+    private var handledJump: Int? = null
+    internal fun locateQuestion(jump: QuestionJump?) {
+        if (jump == null || handledJump == jump.sequence) return
+        val editor = editors.firstOrNull { it.number == jump.number } ?: return
+        handledJump = jump.sequence
+        editor.box.doOnLayout { postOnAnimation {
+            if (editor.box.width > 0 && editor.box.height > 0) {
+                val rect = Rect(0, 0, editor.box.width, editor.box.height)
+                offsetDescendantRectToMyCoords(editor.box, rect)
+                onRequestEditorVisibility?.invoke(rect)
+                jump.onLocated()
+            }
+        } }
+    }
     private var reviewClick: ((String) -> Unit)? = null
     internal fun showReview(review: ReviewInteraction?) {
         reviewClick = review?.select

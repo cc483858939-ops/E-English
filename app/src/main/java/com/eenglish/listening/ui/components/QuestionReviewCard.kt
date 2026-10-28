@@ -38,7 +38,7 @@ internal fun ReviewStatus.color(): Color = when (this) {
 }
 
 @Composable
-fun ReviewResultContent(item: QuestionReview) {
+fun ReviewResultContent(item: QuestionReview, showUserAnswer: Boolean = false) {
     var showVariants by remember(item.id) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().testTag("review-result-${item.id}"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(item.status.label, color = item.status.color(), style = MaterialTheme.typography.titleLarge,
@@ -48,7 +48,7 @@ fun ReviewResultContent(item: QuestionReview) {
             Text("正确答案", style = MaterialTheme.typography.labelLarge)
             Text(item.standardAnswer, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.testTag("review-standard-answer"))
         }
-        if (item.status != ReviewStatus.CORRECT) {
+        if (showUserAnswer || item.status != ReviewStatus.CORRECT) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("你的答案", style = MaterialTheme.typography.labelLarge)
                 Text(item.userAnswer.ifBlank { "未作答" }, color = item.status.color(),

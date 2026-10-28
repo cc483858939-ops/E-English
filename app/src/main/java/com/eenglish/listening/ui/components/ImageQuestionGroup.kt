@@ -203,7 +203,7 @@ private fun ImageAnswerInput(
                 if (state.isFocused) onActivate(question.number)
             }
             .semantics { contentDescription = "Q${question.number} 答案" }
-            .testTag("image-input-${question.number}"),
+            .questionJumpTarget(question.number).testTag("image-input-${question.number}"),
         decorationBox = { innerTextField ->
             Box(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 10.dp),
                 contentAlignment = Alignment.CenterStart) {

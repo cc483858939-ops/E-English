@@ -78,6 +78,16 @@ fun pressWord(offset: Int) = object : ViewAction {
         controller.loopMainThreadUntilIdle()
     }
 }
+fun doubleTapCharacter(offset: Int) = object : ViewAction {
+    override fun getDescription() = "Double tap a UTF-16 text position with real touch events"
+    override fun getConstraints(): Matcher<View> = isAssignableFrom(TextView::class.java)
+    override fun perform(controller: UiController, view: View) {
+        val point = textPoint(view as TextView, offset)
+        GeneralClickAction(Tap.DOUBLE, { floatArrayOf(point.x, point.y) }, Press.FINGER,
+            InputDevice.SOURCE_TOUCHSCREEN, 0).perform(controller, view)
+        controller.loopMainThreadForAtLeast(400)
+    }
+}
 fun selectionAction(start: Int, end: Int) = object : ViewAction {
     override fun getDescription() = "Adjust native selection using Android accessibility action"
     override fun getConstraints(): Matcher<View> = isAssignableFrom(TextView::class.java)

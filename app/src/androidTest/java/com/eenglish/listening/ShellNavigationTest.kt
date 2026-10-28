@@ -125,8 +125,16 @@ class ShellNavigationTest {
         compose.waitUntil(10000) { kotlin.math.abs(vm.audio.state.value.positionMs - target) < 500 }
         compose.onNodeWithTag("transcript-follow-bar").assert(
             SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "播放段落:$index"))
+        val block = com.eenglish.listening.domain.annotation.AnnotationDocument.transcript(
+            requireNotNull(vm.uiState.value.part).transcript, "en").blocks.single { it.textId == "segment:$index" }
+        textAt("transcript-en").perform(tapCharacter(block.start + 2))
+        compose.waitUntil(10000) { kotlin.math.abs(vm.audio.state.value.positionMs - timeline.segments[index]!!.startMs) < 500 }
+        assertFalse(vm.audio.state.value.isPlaying)
         compose.onNodeWithTag("audio-toggle").performClick()
         compose.waitUntil(10000) { vm.audio.state.value.isPlaying && vm.audio.state.value.positionMs > target }
+        textAt("transcript-en").perform(tapCharacter(block.start + 2))
+        compose.waitUntil(10000) { vm.audio.state.value.isPlaying &&
+            kotlin.math.abs(vm.audio.state.value.positionMs - timeline.segments[index]!!.startMs) < 1500 }
         compose.onNodeWithTag("audio-toggle").performClick()
         val app = compose.activity.application as TestListeningApplication
         assertEquals(vm.uiState.value.answers, runBlocking(Dispatchers.IO) {
@@ -808,7 +816,7 @@ class ShellNavigationTest {
         openTranscript()
         assertSubmittedTranscriptQuestion(question.number, wrong.id)
         val chosen = vm.uiState.value.answers.toMap()
-        compose.onNodeWithTag("option-${question.number}-${question.correctAnswer}").performScrollTo()
+        compose.onNodeWithTag("choice-review-option-${question.number}-${question.correctAnswer}").performScrollTo()
             .performTouchInput { click() }
         compose.runOnIdle { vm.selectAnswer(question.id, question.correctAnswer) }
         assertEquals(chosen, vm.uiState.value.answers)
@@ -832,12 +840,11 @@ class ShellNavigationTest {
         val correct = question.options.single { it.id == question.correctAnswer }
         val userOption = question.options.single { it.id == selected }
         compose.onNodeWithTag("transcript-question-summary").assertTextEquals("Q$number · 回答错误")
-        compose.onNodeWithTag("transcript-review-question-tab").assertIsSelected()
-        question.options.forEach { compose.onNodeWithTag("option-$number-${it.id}").assertIsNotEnabled() }
-        compose.onNodeWithTag("transcript-review-answer-tab").performClick()
+        compose.onNodeWithTag("transcript-review-question-tab").assertDoesNotExist()
+        question.options.forEach { compose.onNodeWithTag("choice-review-option-$number-${it.id}")
+            .assert(SemanticsMatcher.keyNotDefined(SemanticsActions.OnClick)) }
         compose.onNodeWithTag("review-user-answer").performScrollTo().assertTextEquals("${userOption.id} — ${userOption.text}")
         compose.onNodeWithTag("review-standard-answer").performScrollTo().assertTextEquals("${correct.id} — ${correct.text}")
-        compose.onNodeWithTag("transcript-review-question-tab").performClick()
     }
 
     @Test fun handleContinuouslyResizesWithoutSnappingAndRespectsBounds() {
@@ -859,12 +866,14 @@ class ShellNavigationTest {
         assertEquals("No settling animation or snapping", released, panelHeight(), 1f)
         dragPanelTo(0.40f)
         assertTrue(panelHeight() < released)
-        val range = handle.fetchSemanticsNode().config[SemanticsProperties.ProgressBarRangeInfo].range
-        dragPanelTo(0.88f)
-        assertEquals(range.endInclusive, panelRatio(), 0.015f)
+        handle.performSemanticsAction(SemanticsActions.SetProgress) { it(1f) }
+        val maximum = handle.fetchSemanticsNode().config[SemanticsProperties.ProgressBarRangeInfo].range.endInclusive
+        handle.performSemanticsAction(SemanticsActions.SetProgress) { it(maximum) }
+        assertEquals(maximum, panelRatio(), 0.015f)
         assertResizableRegions()
-        dragPanelTo(0.10f)
-        assertEquals(range.start, panelRatio(), 0.015f)
+        handle.performSemanticsAction(SemanticsActions.SetProgress) { it(0f) }
+        val minimum = handle.fetchSemanticsNode().config[SemanticsProperties.ProgressBarRangeInfo].range.start
+        assertEquals(minimum, panelRatio(), 0.015f)
         assertResizableRegions()
     }
 
@@ -930,6 +939,13 @@ class ShellNavigationTest {
         assertEquals(end, transcriptOffset(), 2f)
         jumpInTranscript(24)
         assertEquals(end, transcriptOffset(), 2f)
+        compose.onNodeWithTag("transcript-body").performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, 100000f) }
+        compose.waitForIdle()
+        val bottom = transcriptOffset()
+        dragPanelTo(0.90f)
+        assertEquals(bottom, transcriptOffset(), 2f)
+        dragPanelTo(0.38f)
+        assertEquals(bottom, transcriptOffset(), 2f)
         // Ordinary scrolling in either content region must not resize the panel.
         val height = panelHeight()
         compose.onNodeWithTag("transcript-question-body").performTouchInput { swipeUp() }
@@ -969,6 +985,11 @@ class ShellNavigationTest {
             assertEquals(player, compose.onNodeWithTag("transcript-player").fetchSemanticsNode().boundsInRoot)
             assertEquals(sessionId, vm.uiState.value.attempt!!.session.id)
         }
+        compose.onNodeWithTag("transcript-drag-handle").performSemanticsAction(SemanticsActions.SetProgress) { it(0.90f) }
+        compose.onNodeWithTag("audio-compact-time").assertIsDisplayed()
+        assertSame(controller, vm.audio)
+        assertTrue(controller.state.value.isPlaying)
+        assertEquals(1.5f, controller.state.value.speed, 0f)
         compose.onNodeWithTag("audio-toggle").performClick()
         val app = compose.activity.application as TestListeningApplication
         assertEquals(vm.uiState.value.answers, runBlocking(Dispatchers.IO) {
@@ -998,17 +1019,22 @@ class ShellNavigationTest {
 
     private fun assertResizableRegions() {
         val player = compose.onNodeWithTag("transcript-player").fetchSemanticsNode().boundsInRoot
-        val tabs = compose.onNodeWithTag("transcript-language-tabs").fetchSemanticsNode().boundsInRoot
+        val tabs = compose.onAllNodesWithTag("transcript-language-tabs").fetchSemanticsNodes().singleOrNull()?.boundsInRoot
         val reading = compose.onNodeWithTag("transcript-body").fetchSemanticsNode().boundsInRoot
         val panel = compose.onNodeWithTag("transcript-question-panel").fetchSemanticsNode().boundsInRoot
         val body = compose.onNodeWithTag("transcript-question-body").fetchSemanticsNode().boundsInRoot
         val handle = compose.onNodeWithTag("transcript-drag-handle").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
-        assertTrue(player.bottom <= tabs.top)
-        assertTrue(tabs.bottom <= reading.top)
+        if (tabs != null) {
+            assertTrue(player.bottom <= tabs.top)
+            assertTrue(tabs.bottom <= reading.top)
+        } else {
+            compose.onNodeWithTag("audio-compact-time").assertIsDisplayed()
+            assertTrue(player.bottom <= reading.top)
+        }
         assertTrue(reading.bottom <= panel.top)
         assertTrue(body.top >= handle.bottom)
         assertTrue(body.bottom <= panel.bottom)
-        assertTrue(reading.height >= 48f * compose.density.density)
+        assertTrue(reading.height >= (if (tabs == null) 20f else 48f) * compose.density.density)
         assertTrue(body.height >= 48f * compose.density.density - 1f)
         assertTrue(handle.height >= 48f * compose.density.density)
         val toggle = compose.onNodeWithTag("transcript-card-toggle").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
@@ -1060,6 +1086,34 @@ class ShellNavigationTest {
             assertTrue(header.top >= bars.top)
             assertTrue(panel.bottom <= decor.height - bars.bottom)
         }
+    }
+
+    @Test fun globalAnswerSheetUsesSavedSelectionsAndExistingMissingAnswerConfirmation() {
+        openPractice()
+        val id = vm.uiState.value.attempt!!.session.id
+        select(21, "B")
+        compose.waitUntil(10000) { !vm.uiState.value.saving }
+        compose.onNodeWithTag("answer-sheet-open").performClick()
+        compose.onNodeWithTag("jump-21").assertContentDescriptionEquals("Q21，已答，当前题")
+        compose.onNodeWithTag("jump-22").assertContentDescriptionEquals("Q22，未答")
+        compose.onNodeWithTag("jump-30").performClick()
+        compose.onNodeWithTag("question-30").assertIsDisplayed()
+        compose.onNodeWithTag("answer-sheet-open").performClick()
+        compose.onNodeWithTag("answer-sheet-submit").performClick()
+        compose.onNodeWithText("还有 9 题未作答").assertIsDisplayed()
+        compose.onNodeWithText("继续答题").performClick()
+        openTranscript()
+        compose.onNodeWithTag("answer-sheet-open").performClick()
+        compose.onNodeWithTag("jump-21").assertContentDescriptionEquals("Q21，已答，当前题")
+        compose.onNodeWithTag("answer-sheet-submit").performClick()
+        compose.onNodeWithText("还有 9 题未作答").assertIsDisplayed()
+        compose.onNodeWithText("确认提交").performClick()
+        compose.waitUntil(10000) { vm.uiState.value.submitted && !vm.uiState.value.saving }
+        assertEquals(id, vm.uiState.value.attempt!!.session.id)
+        assertEquals(1, vm.uiState.value.history.size)
+        assertEquals("B", vm.uiState.value.answers[vm.uiState.value.questions.single { it.number == 21 }.id])
+        compose.onNodeWithTag("answer-sheet-open").performClick()
+        compose.onNodeWithTag("answer-sheet-submit").assertDoesNotExist()
     }
 
     private fun openPractice() {

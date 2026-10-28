@@ -1,5 +1,5 @@
 package com.eenglish.listening.navigation
 
 enum class AppDestination(val route: String) {
-    LIST("parts"), PRACTICE("practice"), TRANSCRIPT("transcript"),
+    LIST("parts"), ME("me"), HISTORY("history"), PRACTICE("practice"), TRANSCRIPT("transcript"),
 }

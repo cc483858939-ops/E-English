@@ -33,7 +33,7 @@ import com.eenglish.listening.viewmodel.PracticeUiState
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PartListScreen(state: PracticeUiState, onImport: () -> Unit = {}, backEnabled: Boolean = true,
-    onExit: () -> Unit = {}, onOpen: (String) -> Unit) {
+    onExit: () -> Unit = {}, bottomBar: @Composable () -> Unit = {}, onOpen: (String) -> Unit) {
     var book by rememberSaveable { mutableStateOf<Int?>(null) }
     var test by rememberSaveable { mutableStateOf<Int?>(null) }
     var search by rememberSaveable { mutableStateOf("") }
@@ -98,7 +98,7 @@ fun PartListScreen(state: PracticeUiState, onImport: () -> Unit = {}, backEnable
                     }
                 }
             })
-    }, contentWindowInsets = WindowInsets.safeDrawing) { insets ->
+    }, bottomBar = bottomBar, contentWindowInsets = WindowInsets.safeDrawing) { insets ->
         Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                 OutlinedTextField(search, { search = it }, singleLine = true,

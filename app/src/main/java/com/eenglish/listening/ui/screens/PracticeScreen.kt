@@ -15,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.core.view.ViewCompat
@@ -50,6 +51,10 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
     }, onReviewTranscript: (Int) -> Unit = {}) {
     val imeVisible = rememberImeVisible()
     var activeQuestionNumber by remember { mutableStateOf<Int?>(null) }
+    var showAnswerSheet by rememberSaveable(state.attempt?.session?.id) { mutableStateOf(false) }
+    var jumpSequence by remember { mutableIntStateOf(0) }
+    var pendingJump by remember { mutableStateOf<QuestionJump?>(null) }
+    val focusManager = LocalFocusManager.current
     val displayItems = remember(state.questions, state.questionLayout) {
         QuestionLayoutDisplayParser.parse(state.questions, state.questionLayout?.groups.orEmpty())
     }
@@ -120,6 +125,47 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
         onFlushInline()
         activeImageGroupId = null
     }
+    if (showAnswerSheet) GlobalAnswerSheet(state.questions, state.questionLayoutV4,
+        state.answers + state.inlineDrafts,
+        if (state.submitted) reviews.firstOrNull { it.id == currentReviewId }?.questions?.firstOrNull()?.number
+            else activeQuestionNumber ?: state.questions.firstOrNull()?.number, state.submitted,
+        state.saving || state.submitting, onDismiss = { showAnswerSheet = false },
+        onSubmit = { showAnswerSheet = false; onFlushInline(); onSubmit() },
+        onQuestion = { number ->
+            showAnswerSheet = false
+            activeQuestionNumber = number
+            val question = state.questions.first { it.number == number }
+            if (state.submitted) {
+                reviews.firstOrNull { question.id in it.questionIds }?.let { selectReview(it.id) }
+            } else reviewScope.launch {
+                val groupIndex = v4Groups.indexOfFirst { group ->
+                    group["questionIds"]?.jsonArray.orEmpty().any { it.jsonPrimitive.content == question.id }
+                }
+                val group = v4Groups.getOrNull(groupIndex)
+                activeImageGroupId = group?.takeIf(::hasV4QuestionImage)?.get("groupId")?.jsonPrimitive?.contentOrNull
+                if (activeImageGroupId != null) activeImageQuestionIndex = group?.get("questionIds")?.jsonArray.orEmpty()
+                    .indexOfFirst { it.jsonPrimitive.content == question.id }.coerceAtLeast(0)
+                imageImeScrollAnchor = null
+                val legacyIndex = displayItems.indexOfFirst { entry -> when (entry) {
+                    is QuestionDisplayItem.Single -> entry.question.id == question.id
+                    is QuestionDisplayItem.InlineGroup -> entry.group.questions.any { it.id == question.id }
+                    is QuestionDisplayItem.StructuredLayout -> entry.questions.any { it.id == question.id }
+                    is QuestionDisplayItem.ImageGroup -> entry.group.questions.any { it.id == question.id }
+                    is QuestionDisplayItem.SharedMatching -> entry.group.questions.any { it.id == question.id }
+                    is QuestionDisplayItem.SharedMultipleChoice -> entry.group.questions.any { it.id == question.id }
+                    is QuestionDisplayItem.SharedTextFallback -> entry.group.questions.any { it.id == question.id }
+                } }
+                val target = if (state.questionLayoutV4 != null) groupIndex else legacyIndex
+                if (target >= 0) {
+                    listState.scrollToItem(target + 1)
+                    jumpSequence++
+                    val sequence = jumpSequence
+                    pendingJump = QuestionJump(number, sequence) {
+                        if (pendingJump?.sequence == sequence) pendingJump = null
+                    }
+                }
+            }
+        })
     val resumeDraft = state.submitted && state.history.firstOrNull { it.session.partId == state.part?.id }
         ?.session?.status == SessionStatus.IN_PROGRESS
     if (state.confirmMissing != null) AlertDialog(onDismissRequest = onDismiss,
@@ -133,6 +179,9 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
             .testTag("practice-header"), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = { onFlushInline(); onBack() }) { Text("返回") }
             Text(if (state.submitted) "听力复盘" else "听力答题", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            AnswerSheetButton(state.attempt != null && state.questions.isNotEmpty()) {
+                focusManager.clearFocus(); onFlushInline(); showAnswerSheet = true
+            }
             TextButton(onClick = {
                 onFlushInline()
                 if (state.submitted) reviews.firstOrNull { it.id == currentReviewId }?.questions?.firstOrNull()
@@ -151,7 +200,8 @@ fun PracticeScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> Un
             }
         }
     }) { insets ->
-        CompositionLocalProvider(LocalQuestionReview provides currentReviewId?.let { ReviewInteraction(reviews, it, selectReview) }) {
+        CompositionLocalProvider(LocalQuestionReview provides currentReviewId?.let { ReviewInteraction(reviews, it, selectReview) },
+            LocalQuestionJump provides pendingJump) {
         Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets).imePadding()) {
             if (state.part != null) {
                 Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)

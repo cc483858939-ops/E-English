@@ -11,6 +11,7 @@ import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -30,6 +31,10 @@ import com.eenglish.listening.ui.components.ReviewInteraction
 import com.eenglish.listening.ui.components.hasV4QuestionImage
 import com.eenglish.listening.ui.components.PlaybackTranscriptContent
 import com.eenglish.listening.ui.components.TranscriptPlaybackBounds
+import com.eenglish.listening.ui.components.GlobalAnswerSheet
+import com.eenglish.listening.ui.components.AnswerSheetButton
+import com.eenglish.listening.ui.components.LocalQuestionJump
+import com.eenglish.listening.ui.components.QuestionJump
 import com.eenglish.listening.domain.annotation.AnnotationDocument
 import com.eenglish.listening.domain.gapfill.QuestionLayoutDisplayParser
 import com.eenglish.listening.domain.gapfill.QuestionDisplayItem
@@ -48,7 +53,7 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
     mode: TranscriptMode, onModeChange: (TranscriptMode) -> Unit, onBack: () -> Unit,
     onSelect: (String, String) -> Unit, onSeekBy: (Long) -> Unit = {}, onSpeed: (Float) -> Unit = {},
     onInlineEdit: (String, String) -> Unit = onSelect, onInlineCommit: (String) -> Unit = {},
-    onFlushInline: () -> Unit = {},
+    onFlushInline: () -> Unit = {}, onSubmit: (() -> Unit)? = null,
     pageState: TranscriptPageState = key(state.attempt?.session?.id, state.part?.id) {
         rememberTranscriptPageState(state.questions.firstOrNull()?.number ?: 0)
     }) {
@@ -62,9 +67,10 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
     }
     var questionNumber by pageState.questionNumber
     var expanded by pageState.expanded
-    var panelRatio by pageState.panelRatio
-    var lastExpandedRatio by pageState.lastExpandedRatio
     var showJump by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+    var jumpSequence by remember { mutableIntStateOf(0) }
+    var pendingJump by remember { mutableStateOf<QuestionJump?>(null) }
     val index = questions.indexOfFirst { it.number == questionNumber }.coerceAtLeast(0)
     val question = questions.getOrNull(index)
     val reviews = remember(questions, state.answers, state.submitted) {
@@ -72,12 +78,22 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
     }
     val currentReview = reviews.firstOrNull { question?.id in it.questionIds }
     val reviewIndex = reviews.indexOf(currentReview)
+    val reviewPositions = currentReview?.questionIds.orEmpty().map { id -> questions.indexOfFirst { it.id == id } + 1 }.sorted()
+    val reviewProgress = reviewPositions.firstOrNull()?.let { first ->
+        val last = reviewPositions.last()
+        "${if (first == last) first.toString() else "$first–$last"}/${questions.size}"
+    }
+    val choiceReview = currentReview?.questions?.all { !it.isTextInput } == true
+    val fillReview = currentReview?.questions?.all { it.isTextInput } == true
+    var panelRatio by pageState.panelRatio
+    var lastExpandedRatio by pageState.lastExpandedRatio
     val previousNumber = if (currentReview != null) reviews.getOrNull(reviewIndex - 1)?.questions?.firstOrNull()?.number
         else questions.getOrNull(index - 1)?.number
     val nextNumber = if (currentReview != null) reviews.getOrNull(reviewIndex + 1)?.questions?.firstOrNull()?.number
         else questions.getOrNull(index + 1)?.number
     var reviewAnswers by pageState.reviewAnswers
     val compactInput = WindowInsets.isImeVisible && expanded && question?.isTextInput == true && !state.submitted
+    val largePanel = question != null && expanded && !compactInput && panelRatio >= 0.8f
     val activeV4Group = remember(state.questionLayoutV4, question?.id) {
         state.questionLayoutV4?.get("groups")?.jsonArray?.firstOrNull { element ->
             val ids = (element as? JsonObject)?.get("questionIds") as? kotlinx.serialization.json.JsonArray
@@ -150,7 +166,7 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
         ?: activeImageGroup?.questions?.first()?.id ?: activeMatching?.questions?.first()?.id
         ?: activeMultipleChoice?.groupId ?: activeTextFallback?.questions?.first()?.id ?: question?.id
     val questionScroll = pageState.questionScroll
-    val panelScroll = if (currentReview != null && reviewAnswers) pageState.reviewScroll else questionScroll
+    val panelScroll = if (choiceReview || currentReview != null && !fillReview && reviewAnswers) pageState.reviewScroll else questionScroll
     LaunchedEffect(currentReview?.id) {
         if (pageState.reviewId != currentReview?.id) {
             pageState.reviewScroll.scrollTo(0)
@@ -192,44 +208,41 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
         questionOffsetToRestore = null
     }
 
-    if (showJump && question != null) {
-        AlertDialog(onDismissRequest = { showJump = false },
-            title = { Text("跳转题号") },
-            text = {
-                Column(Modifier.verticalScroll(rememberScrollState())) {
-                    questions.chunked(5).forEach { row ->
-                        Row(Modifier.fillMaxWidth()) {
-                            row.forEach { item ->
-                                TextButton(onClick = { questionNumber = item.number; showJump = false },
-                                    modifier = Modifier.weight(1f).testTag("jump-${item.number}")) {
-                                    Text(item.number.toString())
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = { TextButton(onClick = { showJump = false }) { Text("关闭") } })
-    }
+    if (showJump) GlobalAnswerSheet(questions, state.questionLayoutV4, state.answers + state.inlineDrafts,
+        question?.number, state.submitted, state.saving || state.submitting,
+        onDismiss = { showJump = false }, onSubmit = onSubmit?.let { submit ->
+            { showJump = false; onFlushInline(); submit() }
+        }, onQuestion = { number ->
+            questionNumber = number; showJump = false
+            expanded = true; panelRatio = lastExpandedRatio
+            jumpSequence++
+            val sequence = jumpSequence
+            pendingJump = QuestionJump(number, sequence) {
+                if (pendingJump?.sequence == sequence) pendingJump = null
+            }
+        })
 
     Scaffold(topBar = {
         Row(Modifier.fillMaxWidth()
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
             .testTag("transcript-header"), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = { onFlushInline(); onBack() }) { Text(stringResource(R.string.back_to_practice)) }
-            Text(stringResource(R.string.transcript_title), style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.transcript_title), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            AnswerSheetButton(state.attempt != null && questions.isNotEmpty()) {
+                focusManager.clearFocus(); onFlushInline(); showJump = true
+            }
         }
     }, contentWindowInsets = WindowInsets.safeDrawing) { insets ->
         Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets).imePadding()) {
             Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).testTag("transcript-player")) {
                 AudioControls(audio, onToggle, { position -> locatePlayback(position); onSeek(position) }, compact = true,
                     onSeekBy = { delta -> locatePlayback(audio.positionMs + delta); onSeekBy(delta) }, onSpeed = onSpeed,
-                    singleRow = compactInput)
+                    singleRow = compactInput || largePanel)
             }
             state.error?.let {
                 Text(it, Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.error)
             }
-            if (!compactInput) ScrollableTabRow(selectedTabIndex = mode.ordinal, edgePadding = 0.dp,
+            if (!compactInput && !largePanel) ScrollableTabRow(selectedTabIndex = mode.ordinal, edgePadding = 0.dp,
                 modifier = Modifier.testTag("transcript-language-tabs")) {
                 TranscriptMode.entries.forEach { item ->
                     val label = when (item) {
@@ -240,24 +253,30 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
                     Tab(selected = mode == item, onClick = { onModeChange(item) }, text = { Text(stringResource(label)) })
                 }
             }
-            if (timeline != null && !compactInput) Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
+            if (timeline != null && !compactInput && !largePanel) Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
                 .padding(horizontal = 16.dp).testTag("transcript-follow-bar")
                 .semantics { stateDescription = activeSegment?.let { "播放段落:$it" } ?: "播放段落:无" },
                 horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text(if (following) "原文跟随播放" else "自由阅读", style = MaterialTheme.typography.labelMedium)
+                Column(Modifier.weight(1f)) {
+                    Text(if (following) "原文跟随播放" else "自由阅读", style = MaterialTheme.typography.labelMedium)
+                    if (audio.ready && audio.error == null) Text("点击文字定位音频", style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 TextButton(onClick = { locatePlayback(audio.positionMs) }, enabled = !following,
                     modifier = Modifier.testTag("transcript-follow-resume")) { Text(if (following) "跟随中" else "回到当前播放") }
             }
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().testTag("intensive-content")) {
                 val headerHeight = if (cardHeaderHeightPx == 0) 48.dp else with(density) { cardHeaderHeightPx.toDp() }
                 // On unusually short viewports, navigation joins the scrollable question body.
-                val reviewTabsHeight = if (currentReview != null) 48.dp else 0.dp
+                val reviewTabsHeight = if (currentReview != null && !choiceReview && !fillReview) 48.dp else 0.dp
                 val fixedNavigation = !compactInput && maxHeight >= headerHeight + reviewTabsHeight + 48.dp + 1.dp + 96.dp
                 val chromeHeight = headerHeight + reviewTabsHeight + 1.dp + if (fixedNavigation) 48.dp else 0.dp
                 val minimumViewport = ((maxHeight - chromeHeight) / 2f).coerceIn(1.dp, 48.dp)
                 val minimumPanel = (maxHeight * 0.25f).coerceAtLeast(chromeHeight + minimumViewport)
                     .coerceAtMost((maxHeight - minimumViewport).coerceAtLeast(headerHeight))
-                val maximumPanel = (maxHeight * 0.75f).coerceAtMost(maxHeight - minimumViewport)
+                // Every question type shares the large-card range. Keep the established IME viewport budget.
+                val minimumReading = if (compactInput) minimumViewport else minOf(24.dp, maxHeight * 0.08f)
+                val maximumPanel = (maxHeight * if (compactInput) 0.75f else 0.96f).coerceAtMost(maxHeight - minimumReading)
                     .coerceAtLeast(minimumPanel)
                 val panelHeight = when {
                     question == null -> 0.dp
@@ -267,7 +286,11 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
                 val readingHeight = (maxHeight - panelHeight).coerceAtLeast(1.dp)
                 // Pair an explicit viewport height with tail padding. Both scroll ranges remain
                 // constant throughout a drag, so growing viewports cannot truncate end offsets.
-                val readingEndSpace = if (question != null) (maximumPanel - panelHeight).coerceAtLeast(0.dp) else 0.dp
+                // Keep the scroll limit stable when large-card mode changes the player and tabs.
+                val readingEndSpace = if (question != null) {
+                    (if (compactInput) maximumPanel - panelHeight else readingHeight - minimumReading)
+                        .coerceAtLeast(0.dp)
+                } else 0.dp
                 val availablePx = with(density) { maxHeight.toPx() }
                 val availableHeight = maxHeight
                 val minimumRatio = minimumPanel / maxHeight
@@ -295,7 +318,15 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
                             if (part.transcript.chinese.isBlank()) Text("中文翻译资料缺失")
                             if (timeline != null) PlaybackTranscriptContent(part.transcript, mode, activeSegment, anchorSegment,
                                 transcriptScroll, viewportTop, onBounds = { playbackBounds = it },
-                                onUserInteraction = { following = false }) else when (mode) {
+                                onUserInteraction = { following = false },
+                                seekableIndices = if (audio.ready && audio.error == null)
+                                    timeline.segments.indices.filter { timeline.segments[it] != null }.toSet() else emptySet(),
+                                onSegmentTap = { index -> timeline.segments.getOrNull(index)?.let { cue ->
+                                    if (audio.ready && audio.error == null) {
+                                        locatePlayback(cue.startMs)
+                                        onSeek(cue.startMs)
+                                    }
+                                } }) else when (mode) {
                                 TranscriptMode.ENGLISH -> AnnotatableText(remember(part.transcript) {
                                     AnnotationDocument.transcript(part.transcript, "en") }, viewTag = "transcript-en")
                                 TranscriptMode.CHINESE -> AnnotatableText(remember(part.transcript) {
@@ -317,7 +348,8 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
                         } else Text("暂无已导入原文")
                     }
                     if (question != null) {
-                        CompositionLocalProvider(LocalQuestionReview provides currentReview?.let { item ->
+                        CompositionLocalProvider(LocalQuestionJump provides pendingJump,
+                            LocalQuestionReview provides currentReview?.let { item ->
                             ReviewInteraction(reviews, item.id, { id ->
                                 reviews.firstOrNull { it.id == id }?.questions?.firstOrNull()?.let { questionNumber = it.number }
                             }, locateActive = pageState.locatedQuestionNumber != questionNumber &&
@@ -341,7 +373,7 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
                             },
                             onPrevious = { onFlushInline(); previousNumber?.let { questionNumber = it } },
                             onNext = { onFlushInline(); nextNumber?.let { questionNumber = it } },
-                            onJump = { onFlushInline(); showJump = true }, onSelect = { onSelect(question.id, it) },
+                            onJump = { focusManager.clearFocus(); onFlushInline(); showJump = true }, onSelect = { onSelect(question.id, it) },
                             inlineGroup = activeGroup, structuredGroup = activeStructured?.group,
                             structuredQuestions = activeStructured?.questions.orEmpty(),
                             answers = state.answers + state.inlineDrafts,
@@ -355,6 +387,7 @@ fun TranscriptScreen(state: PracticeUiState, audio: AudioState, onToggle: () -> 
                             v4Group = activeV4Group,
                             v4GroupQuestions = activeV4Questions,
                             reviewItem = currentReview,
+                            reviewProgress = reviewProgress,
                             reviewAnswers = reviewAnswers, onReviewAnswers = { reviewAnswers = it },
                             reviewScroll = pageState.reviewScroll,
                             compact = compactInput,

@@ -37,6 +37,21 @@ import com.eenglish.listening.ui.components.LocalAnswerSession
 import com.eenglish.listening.ui.components.LocalAnswerSaving
 import com.eenglish.listening.ui.components.LocalQuestionImages
 import com.eenglish.listening.ui.components.BatchImportDialog
+import com.eenglish.listening.ui.screens.MeScreen
+import com.eenglish.listening.ui.screens.PracticeHistoryScreen
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.unit.dp
 
 @Composable
 fun ListeningApp(shellViewModel: ShellViewModel = viewModel(), practiceViewModel: PracticeViewModel = viewModel()) {
@@ -51,7 +66,8 @@ fun ListeningApp(shellViewModel: ShellViewModel = viewModel(), practiceViewModel
     val imeVisible = WindowInsets.ime.getBottom(density) > 0
     LaunchedEffect(currentRoute) {
         // The Activity remains started when navigation returns to the library.
-        if (currentRoute == AppDestination.LIST.route) practiceViewModel.audio.pause()
+        if (currentRoute != null && currentRoute !in setOf(AppDestination.PRACTICE.route, AppDestination.TRANSCRIPT.route))
+            practiceViewModel.audio.pause()
     }
     val navigateUp: () -> Unit = {
         practiceViewModel.flushInlineAnswers()
@@ -86,6 +102,15 @@ fun ListeningApp(shellViewModel: ShellViewModel = viewModel(), practiceViewModel
     val importLauncher = rememberLauncherForActivityResult(OfflinePackDocuments()) { uris ->
         practiceViewModel.importPacks(uris)
     }
+    val selectTab: (AppDestination) -> Unit = { destination ->
+        if (navController.currentDestination?.route != destination.route) {
+            navController.navigate(destination.route) {
+                popUpTo(AppDestination.LIST.route) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
+        }
+    }
 
     CompositionLocalProvider(LocalAnnotations provides AnnotationContext(practice.part?.id, highlights, annotationViewModel::change),
         LocalAnswerSession provides practice.attempt?.session?.id, LocalAnswerSaving provides practice.saving, LocalQuestionImages provides imageLoader) {
@@ -97,12 +122,28 @@ fun ListeningApp(shellViewModel: ShellViewModel = viewModel(), practiceViewModel
     NavHost(navController = navController, startDestination = AppDestination.LIST.route) {
         composable(AppDestination.LIST.route) {
             PartListScreen(practice, onImport = { importLauncher.launch(arrayOf("*/*")) },
+                bottomBar = { MainTabs(AppDestination.LIST, selectTab) },
                 backEnabled = currentRoute == AppDestination.LIST.route, onExit = {
                     practiceViewModel.audio.pause()
                     activity?.finish()
                 }, onOpen = { id ->
                 practiceViewModel.openPart(id)
                 navController.navigate(AppDestination.PRACTICE.route) { launchSingleTop = true }
+            })
+        }
+        composable(AppDestination.ME.route) {
+            BackHandler(enabled = currentRoute == AppDestination.ME.route) { selectTab(AppDestination.LIST) }
+            MeScreen(onHistory = { navController.navigate(AppDestination.HISTORY.route) { launchSingleTop = true } },
+                bottomBar = { MainTabs(AppDestination.ME, selectTab) })
+        }
+        composable(AppDestination.HISTORY.route) {
+            BackHandler(enabled = currentRoute == AppDestination.HISTORY.route, onBack = navigateUp)
+            PracticeHistoryScreen(practice, onBack = navigateUp, onOpen = { id ->
+                practiceViewModel.openHistory(id) {
+                    // A slow load must not navigate after the user has left this list.
+                    if (navController.currentDestination?.route == AppDestination.HISTORY.route)
+                        navController.navigate(AppDestination.PRACTICE.route) { launchSingleTop = true }
+                }
             })
         }
         composable(AppDestination.PRACTICE.route) {
@@ -144,6 +185,7 @@ fun ListeningApp(shellViewModel: ShellViewModel = viewModel(), practiceViewModel
                 onSpeed = practiceViewModel.audio::setSpeed,
                 mode = state.transcriptMode,
                 onModeChange = shellViewModel::selectTranscriptMode,
+                onSubmit = { navigateUp(); practiceViewModel.requestSubmit() },
                 onSelect = practiceViewModel::selectAnswer,
                 onInlineEdit = practiceViewModel::editInlineAnswer,
                 onInlineCommit = practiceViewModel::flushInlineAnswer,
@@ -152,5 +194,30 @@ fun ListeningApp(shellViewModel: ShellViewModel = viewModel(), practiceViewModel
             )
         }
     }
+    }
+}
+
+@Composable
+private fun MainTabs(selected: AppDestination, onSelect: (AppDestination) -> Unit) {
+    NavigationBar(Modifier.testTag("main-tabs")) {
+        listOf(AppDestination.LIST to "练习", AppDestination.ME to "我").forEach { (destination, label) ->
+            NavigationBarItem(selected = selected == destination, onClick = { onSelect(destination) },
+                modifier = Modifier.testTag(if (destination == AppDestination.LIST) "tab-practice" else "tab-me"),
+                label = { Text(label) }, icon = {
+                    val color = MaterialTheme.colorScheme.onSurface
+                    Canvas(Modifier.size(24.dp)) {
+                        scale(size.width / 24f, size.height / 24f, pivot = Offset.Zero) {
+                            if (destination == AppDestination.LIST) drawPath(Path().apply {
+                                moveTo(3f, 11f); lineTo(12f, 3f); lineTo(21f, 11f)
+                                lineTo(21f, 21f); lineTo(15f, 21f); lineTo(15f, 14f)
+                                lineTo(9f, 14f); lineTo(9f, 21f); lineTo(3f, 21f); close()
+                            }, color, style = Stroke(1.7f)) else {
+                                drawCircle(color, 4f, Offset(12f, 7f), style = Stroke(1.7f))
+                                drawArc(color, 180f, 180f, false, Offset(3f, 14f), Size(18f, 14f), style = Stroke(1.7f))
+                            }
+                        }
+                    }
+                })
+        }
     }
 }

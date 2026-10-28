@@ -270,6 +270,45 @@ class PracticeViewModel(application: Application, private val savedStateHandle: 
         savedStateHandle[SESSION_KEY] = sessionId
         reconcile(mutableState.value.history)
     }
+    /** Load a specific existing attempt without resumeOrCreate or changing its frozen questions. */
+    fun openHistory(sessionId: String, onOpened: () -> Unit = {}) {
+        val state = mutableState.value
+        if (state.loading || state.saving) return
+        val attempt = state.history.firstOrNull { it.session.id == sessionId } ?: return
+        if (state.parts.none { it.id == attempt.session.partId }) {
+            mutableState.update { it.copy(error = "请先导入这条练习记录对应的资料包") }
+            return
+        }
+        if (state.inlineDrafts.isNotEmpty()) {
+            flushInlineAnswers()
+            return
+        }
+        audio.pause()
+        mutableState.update { it.copy(loading = true, confirmMissing = null) }
+        enqueue {
+            try {
+                val part = app.parts.loadPart(attempt.session.partId)
+                val layout = app.parts.loadLayout(part)
+                val layoutV4 = app.parts.loadLayoutV4(part)
+                val timeline = app.parts.loadTranscriptTimeline(part)
+                val audioPath = app.parts.audioPath(part)
+                audio.load(audioPath)
+                savedStateHandle[PART_KEY] = part.id
+                savedStateHandle[SESSION_KEY] = attempt.session.id
+                submitAfterSave = false
+                inlineDebounces.values.forEach(Job::cancel)
+                inlineDebounces.clear()
+                queuedInline.clear()
+                mutableState.update { it.copy(part = part, questionLayout = layout, questionLayoutV4 = layoutV4,
+                    transcriptTimeline = timeline, attempt = attempt, answers = attempt.selectedAnswers,
+                    inlineDrafts = emptyMap(), loading = false) }
+                onOpened()
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) {
+                mutableState.update { it.copy(loading = false, error = "无法打开这条练习记录，请检查对应资料包") }
+            }
+        }
+    }
     override fun onCleared() { commands.close(); audio.release(); super.onCleared() }
     private companion object {
         const val SESSION_KEY = "practiceSessionId"
